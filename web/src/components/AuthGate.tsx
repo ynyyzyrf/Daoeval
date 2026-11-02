@@ -31,15 +31,29 @@ export function AuthGate({ children }: { children: ReactNode }) {
     catch (reason) { window.alert(reason instanceof Error ? reason.message : '登出失敗，請稍後再試') }
   }
   if (username) return <AuthContext.Provider value={{ username, logout }}>{children}</AuthContext.Provider>
-  return <main className="login-page"><section className="login-card" aria-labelledby="login-title">
-    <div className="login-brand">Daoeval</div>
-    <h1 id="login-title">登入工作區</h1>
-    <p className="muted">管理 Agent、測試集與評測實驗。</p>
-    {checking ? <p role="status">正在確認登入狀態…</p> : <form onSubmit={login} className="login-form">
-      <label>帳號<input name="username" autoComplete="username" required maxLength={128} value={account} onChange={(event) => setAccount(event.target.value)} /></label>
-      <label>密碼<input name="password" type="password" autoComplete="current-password" required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-      {error && <p className="login-error" role="alert">{error}</p>}
-      <Button type="submit" variant="primary" disabled={busy}>{busy ? '登入中…' : '登入'}</Button>
-    </form>}
-  </section></main>
+  return <main className="login-page"><div className="login-layout">
+    <div className="login-brand">
+      <span className="login-brand-mark" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M3 12h3l3-7 5 14 3-7h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+      <span>Daoeval</span>
+    </div>
+    <section className="login-card" aria-labelledby="login-title" aria-describedby="login-description">
+      <header className="login-heading">
+        <h1 id="login-title">欢迎回来</h1>
+        <p id="login-description">登录工作区，开始管理和评测你的 AI Agent</p>
+      </header>
+      {checking ? <p className="login-checking" role="status">正在确认登录状态…</p> : <form onSubmit={login} className="login-form" aria-busy={busy}>
+        <label htmlFor="login-account">账号<input id="login-account" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={128} value={account} aria-describedby={error ? 'login-error' : undefined} onChange={(event) => setAccount(event.target.value)} /></label>
+        <label htmlFor="login-password">密码<input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="请输入密码" required maxLength={1024} value={password} aria-describedby={error ? 'login-error' : undefined} onChange={(event) => setPassword(event.target.value)} /></label>
+        {error && <p id="login-error" className="login-error" role="alert">{error}</p>}
+        <Button className="login-submit" type="submit" variant="primary" disabled={busy} aria-label={busy ? '登录中，请稍候' : '登录'}>
+          {busy && <span className="login-spinner" aria-hidden="true" />}{busy ? '登录中…' : '登录'}
+        </Button>
+      </form>}
+    </section>
+    <p className="login-footer">Daoeval · AI Agent 评测与验收平台</p>
+  </div></main>
 }
