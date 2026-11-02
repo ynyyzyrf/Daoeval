@@ -30,7 +30,7 @@ docker run --rm --read-only --tmpfs /tmp:rw,nosuid,size=512m,mode=1777 --shm-siz
 
 平台訪問 `http://localhost:3000`。平台健康檢查配置為 `GET /healthz`，無需登入，成功返回 HTTP 200 和 `{"status":"ok"}`。此接口不依賴前端資源或外部模型。
 
-鏡像使用數字 UID/GID `10001:10001`，監聽 `0.0.0.0:3000`；運行期資料庫與臨時加密密鑰寫入 `/tmp/daoeval`，Chromium 設定、快取和 PDF 臨時檔也只寫 `/tmp`，不依賴 `$HOME`。前端在構建階段生成。鏡像內含 Chromium 和中文字型，可導出中文 PDF；容器內透過 `AEVAL_BROWSER_NO_SANDBOX=1` 關閉 Chromium 自身沙箱，由容器提供隔離，本地執行不會預設關閉。
+鏡像使用數字 UID `10001`（`USER 10001`，符合部署平台的純數字校驗），監聽 `0.0.0.0:3000`；運行期資料庫與臨時加密密鑰寫入 `/tmp/daoeval`，Chromium 設定、快取和 PDF 臨時檔也只寫 `/tmp`，不依賴 `$HOME`。前端在構建階段生成。鏡像內含 Chromium 和中文字型，可導出中文 PDF；容器內透過 `AEVAL_BROWSER_NO_SANDBOX=1` 關閉 Chromium 自身沙箱，由容器提供隔離，本地執行不會預設關閉。
 
 目前按臨時資料部署：容器重建後資料及自動產生的密鑰可能消失。暫不處理持久化。可在運行期注入 `AEVAL_ENC_KEY`（base64 32 bytes）固定密鑰，無需在構建時提供。
 

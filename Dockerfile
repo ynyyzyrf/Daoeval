@@ -27,7 +27,7 @@ ENV NODE_ENV=production \
     AEVAL_BROWSER_NO_SANDBOX=1 \
     XDG_CONFIG_HOME=/tmp/chromium-config \
     XDG_CACHE_HOME=/tmp/chromium-cache
-USER 10001:10001
+USER 10001
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["node", "-e", "fetch('http://127.0.0.1:3000/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
