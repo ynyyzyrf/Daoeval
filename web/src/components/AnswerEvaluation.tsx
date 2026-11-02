@@ -57,15 +57,15 @@ export function AnswerEvaluationPanel({ state, detail, runId }: {
   const runActive = detail.runs.some((item) => item.id === runId && (item.status === 'running' || item.status === 'paused'))
   return <section className="answer-evaluation-panel">
     <div className="spread"><div><strong>AI 回答差距評估</strong><div className="sm muted">獨立於規則評分，不改動原分數；只評估已有回答。</div></div><Button loading={state.busy} disabled={!runId || !eligible || state.running || runActive} onClick={() => void state.start()}>{state.running ? 'AI 評估中…' : batch ? '重新評估回答' : 'AI 評估回答'}</Button></div>
-    <p className="sm muted">本批有 {eligible} 條回答可送評。問題、參考回答及實際回答將傳送至 DeepSeek，產生 API 用量。<button type="button" className="answer-evaluation-link" onClick={() => navigate('/settings')}>設定評分模型</button></p>
+    <p className="sm muted">本批有 {eligible} 條回答可送評。問題、參考回答及實際回答將傳送至目前設定的評估模型，產生 API 用量。<button type="button" className="answer-evaluation-link" onClick={() => navigate('/models')}>管理評估模型</button></p>
     {!eligible && <p className="sm muted">需要調用成功、實際回答及參考回答；失敗或無回答的項目不作語義評分。</p>}
     {state.error && <Notice tone="err">{state.error}</Notice>}
     {batch && <>
-      <div className="row sm"><Badge tone={batch.status === 'running' ? 'info' : batch.status === 'interrupted' ? 'warn' : 'muted'}>{batch.status === 'running' ? '評估中' : batch.status === 'interrupted' ? '已中斷' : '評估已結束'}</Badge><span>{batch.model} · {formatDateTime(batch.createdAt)}</span><span className="muted">{batch.promptVersion}</span></div>
+      <div className="row sm"><Badge tone={batch.status === 'running' ? 'info' : batch.status === 'interrupted' ? 'warn' : 'muted'}>{batch.status === 'running' ? '評估中' : batch.status === 'interrupted' ? '已中斷' : '評估已結束'}</Badge><span>{batch.providerName} · {batch.model} · {formatDateTime(batch.createdAt)}</span><span className="muted">{batch.promptVersion}</span></div>
       <div className="row sm answer-evaluation-counts"><span>完成評估 {completed.length}/{batch.evaluations.length}</span><span>符合 {passed}/{judged.length} 可判定回答</span><span>無法判定 {completed.length - judged.length}</span><span>評估失敗／中斷 {batch.evaluations.filter((item) => item.status === 'failed' || item.status === 'interrupted').length}</span><span>未送評 {batch.evaluations.filter((item) => item.status === 'skipped').length}</span></div>
       <p className="sm muted">點選下方試驗，在右側查看 AI 差距分析。未完成及無法判定的項目不計入符合比例。</p>
     </>}
-    {state.batches.length > 1 && <details><summary className="sm muted">評估歷史（{state.batches.length} 次）</summary><div className="answer-evaluation-history">{state.batches.map((item) => <button key={item.id} type="button" aria-pressed={batch?.id === item.id} onClick={() => state.setSelectedId(item.id)}>{formatDateTime(item.createdAt)} · {item.model} · {item.status === 'running' ? '評估中' : item.status === 'interrupted' ? '已中斷' : '已結束'}</button>)}</div></details>}
+    {state.batches.length > 1 && <details><summary className="sm muted">評估歷史（{state.batches.length} 次）</summary><div className="answer-evaluation-history">{state.batches.map((item) => <button key={item.id} type="button" aria-pressed={batch?.id === item.id} onClick={() => state.setSelectedId(item.id)}>{formatDateTime(item.createdAt)} · {item.providerName} · {item.model} · {item.status === 'running' ? '評估中' : item.status === 'interrupted' ? '已中斷' : '已結束'}</button>)}</div></details>}
   </section>
 }
 

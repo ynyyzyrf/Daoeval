@@ -1,5 +1,6 @@
 import type { AgentConfig, CaseInput, NormalizedTrial, ValidationResult } from '../../src/shared/types.ts'
 import type { AnswerEvaluationBatch, JudgeSettings } from '../../src/shared/ai-evaluation.ts'
+import { notifyUnauthorized } from './lib/auth.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -9,6 +10,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {
+    notifyUnauthorized(res.status)
     const error = new Error(data?.error ?? `請求失敗（${res.status}）`)
     ;(error as Error & { payload?: unknown; errors?: unknown; status?: number }).payload = data
     ;(error as Error & { errors?: unknown }).errors = data?.errors
@@ -25,7 +27,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   judgeSettings: () => request<JudgeSettings>('/api/ai-judge/settings'),
   saveJudgeSettings: (model: string, apiKey?: string) => request<JudgeSettings>('/api/ai-judge/settings', { method: 'PUT', body: JSON.stringify({ model, apiKey }) }),
-  testJudge: () => request<{ ok: true }>('/api/ai-judge/test', { method: 'POST', body: '{}' }),
+  saveJudgeModel: (id: string | null, config: { name: string; model: string; endpoint: string; apiKey?: string }) => request<JudgeSettings>(id ? `/api/ai-judge/models/${encodeURIComponent(id)}` : '/api/ai-judge/models', { method: id ? 'PUT' : 'POST', body: JSON.stringify(config) }),
+  activateJudgeModel: (id: string) => request<JudgeSettings>(`/api/ai-judge/models/${encodeURIComponent(id)}/activate`, { method: 'POST' }),
+  testJudge: (profileId?: string) => request<{ ok: true }>('/api/ai-judge/test', { method: 'POST', body: JSON.stringify({ profileId }) }),
   answerEvaluations: (experimentId: string, runId: string) => request<AnswerEvaluationBatch[]>(`/api/experiments/${experimentId}/answer-evaluations?runId=${encodeURIComponent(runId)}`),
   startAnswerEvaluation: (experimentId: string, runId: string) => request<{ batchId: string }>(`/api/experiments/${experimentId}/answer-evaluations`, { method: 'POST', body: JSON.stringify({ runId }) }),
   meta: () =>

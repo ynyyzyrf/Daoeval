@@ -861,8 +861,11 @@ if (okGate.ok) {
 {
   const { buildApp } = await import('../src/server/app.ts')
   const app = await buildApp()
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: process.env.AEVAL_ADMIN_USERNAME ?? 'admin', password: process.env.AEVAL_ADMIN_PASSWORD ?? 'admin' } })
+  if (login.statusCode !== 200) throw new Error('Smoke test login failed')
+  const cookie = login.cookies.map((item) => `${item.name}=${item.value}`).join('; ')
   const contentType = (res: { headers: Record<string, unknown> }) => String(res.headers['content-type'] ?? '')
-  const auditApi = await app.inject({ method: 'GET', url: '/api/audit' })
+  const auditApi = await app.inject({ method: 'GET', url: '/api/audit', headers: { cookie } })
   const auditPayload = auditApi.json() as { rows?: unknown }
   check('GET /api/audit 回 200 且 rows 為陣列', auditApi.statusCode === 200 && Array.isArray(auditPayload.rows), JSON.stringify(auditPayload))
   const agentsPage = await app.inject({ method: 'GET', url: '/agents' })
@@ -879,7 +882,7 @@ if (okGate.ok) {
   )
   const headPage = await app.inject({ method: 'HEAD', url: '/settings' })
   check('HEAD /settings 不落 404', headPage.statusCode === 200, String(headPage.statusCode))
-  const apiMissing = await app.inject({ method: 'GET', url: '/api/does-not-exist' })
+  const apiMissing = await app.inject({ method: 'GET', url: '/api/does-not-exist', headers: { cookie } })
   check(
     '未知 /api/ 路徑維持 JSON 404（不被 fallback 吞掉）',
     apiMissing.statusCode === 404 && contentType(apiMissing).includes('application/json'),

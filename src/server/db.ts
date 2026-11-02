@@ -287,6 +287,14 @@ CREATE TABLE IF NOT EXISTS ai_judge_settings (
   secret TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_judge_models (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  model TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ai_evaluation_batch (
   id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL REFERENCES experiment(id),
@@ -314,6 +322,19 @@ CREATE INDEX IF NOT EXISTS idx_ai_evaluation_batch ON ai_evaluation(batch_id);
 
 export function migrate(): void {
   db.exec(SCHEMA)
+  const judgeColumns = db.prepare('PRAGMA table_info(ai_judge_settings)').all() as Array<{ name: string }>
+  for (const [name, definition] of [
+    ['name', "TEXT NOT NULL DEFAULT 'DeepSeek'"],
+    ['endpoint', "TEXT NOT NULL DEFAULT 'https://api.deepseek.com/chat/completions'"],
+    ['profile_id', 'TEXT'],
+  ]) if (!judgeColumns.some((column) => column.name === name)) db.exec(`ALTER TABLE ai_judge_settings ADD COLUMN ${name} ${definition}`)
+  db.transaction(() => {
+    db.exec("INSERT OR IGNORE INTO ai_judge_models (id,name,model,endpoint,secret,updated_at) SELECT 'legacy-deepseek',name,model,endpoint,secret,updated_at FROM ai_judge_settings WHERE profile_id IS NULL")
+    db.exec("UPDATE ai_judge_settings SET profile_id='legacy-deepseek' WHERE profile_id IS NULL")
+  })()
+  const batchColumns = db.prepare('PRAGMA table_info(ai_evaluation_batch)').all() as Array<{ name: string }>
+  if (!batchColumns.some((column) => column.name === 'provider_name')) db.exec("ALTER TABLE ai_evaluation_batch ADD COLUMN provider_name TEXT NOT NULL DEFAULT 'DeepSeek'")
+  if (!batchColumns.some((column) => column.name === 'api_endpoint')) db.exec("ALTER TABLE ai_evaluation_batch ADD COLUMN api_endpoint TEXT NOT NULL DEFAULT 'https://api.deepseek.com/chat/completions'")
   const experimentColumns = db.prepare('PRAGMA table_info(experiment)').all() as Array<{ name: string }>
   if (!experimentColumns.some((column) => column.name === 'archived')) db.exec('ALTER TABLE experiment ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
   const caseColumns = db.prepare('PRAGMA table_info(test_case)').all() as Array<{ name: string }>

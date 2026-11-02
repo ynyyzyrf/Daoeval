@@ -133,6 +133,7 @@ function audit(req: FastifyRequest, action: string, targetType: string, targetId
 }
 
 export function registerRoutes(app: FastifyInstance): void {
+  registerCreationRoutes(app)
   app.get('/api/meta', async () => ({
     keySource,
     mockBase: DEMO_BASE,
@@ -267,23 +268,6 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   })
 
-  app.post('/api/agents', async (req, reply) => {
-    try {
-      const body = req.body as { config?: unknown; secret?: string }
-      const config = normalizeConfig(body.config)
-      const secret = body.secret ?? null
-      const validation = await probe(config, secret)
-      if (!boolOk(validation)) {
-        return reply.code(400).send({ error: '連線驗證未通過，未儲存', validation })
-      }
-      const result = createAgent(config, secret, validation)
-      audit(req, 'agent.create', 'agent', result.id, { name: config.name, platformType: config.platformType, endpoint: config.endpoint, authType: config.authType, allowWrite: config.allowWrite })
-      return reply.code(201).send({ ...result, validation })
-    } catch (e) {
-      return reply.code(400).send({ error: (e as Error).message })
-    }
-  })
-
   app.post('/api/agents/:id', async (req, reply) => {
     try {
       const { id } = req.params as { id: string }
@@ -387,22 +371,6 @@ export function registerRoutes(app: FastifyInstance): void {
     return detail
   })
 
-  app.post('/api/test-sets', async (req, reply) => {
-    try {
-      const body = req.body as { name?: string; description?: string; cases?: Array<Omit<CaseInput, 'id'>> }
-      if (!body.name?.trim()) return reply.code(400).send({ error: '測試集名稱必填' })
-      const id = createTestSet({
-        name: body.name.trim(),
-        description: body.description ?? '',
-        cases: body.cases ?? [],
-      })
-      audit(req, 'test_set.create', 'test_set', id)
-      return reply.code(201).send({ id })
-    } catch (e) {
-      return reply.code(400).send({ error: (e as Error).message })
-    }
-  })
-
   app.put('/api/test-sets/:id/cases', async (req, reply) => {
     try {
       const { id } = req.params as { id: string }
@@ -410,19 +378,6 @@ export function registerRoutes(app: FastifyInstance): void {
       saveCases(id, body.cases ?? [])
       audit(req, 'test_set.cases.save', 'test_set', id, { caseCount: body.cases?.length ?? 0 })
       return { ok: true }
-    } catch (e) {
-      return reply.code(400).send({ error: (e as Error).message })
-    }
-  })
-
-  app.post('/api/test-sets/:id/publish', async (req, reply) => {
-    try {
-      const { id } = req.params as { id: string }
-      const body = req.body as { scoringProfileVersionId?: string }
-      const scoringId = body.scoringProfileVersionId ?? ensureDefaultScoringProfileVersion()
-      const result = publishTestSet(id, scoringId)
-      audit(req, 'test_set.publish', 'test_set_version', result.versionId, { versionId: result.versionId, caseCount: getTestSetDetail(id)?.cases.length ?? 0 })
-      return reply.code(201).send(result)
     } catch (e) {
       return reply.code(400).send({ error: (e as Error).message })
     }
@@ -443,39 +398,6 @@ export function registerRoutes(app: FastifyInstance): void {
     const view = (req.query as { view?: string }).view ?? 'active'
     if (!['active', 'archived', 'all'].includes(view)) return reply.code(400).send({ error: '無效的歸檔篩選' })
     return listExperiments(view as ArchiveView)
-  })
-
-  app.post('/api/experiments', async (req, reply) => {
-    try {
-      const body = req.body as {
-        name?: string
-        kind?: 'A' | 'B'
-        datasetVersionId?: string
-        scoringProfileVersionId?: string
-        repeats?: number
-        branches?: Array<{ role: string; agentVersionId: string; variables?: Record<string, string> }>
-        externalConditions?: Record<string, string>
-      }
-      if (!body.name?.trim()) return reply.code(400).send({ error: '實驗名稱必填' })
-      if (!body.datasetVersionId || !body.scoringProfileVersionId) {
-        return reply.code(400).send({ error: '測試集版本與評分規則集版本必選' })
-      }
-      if (!body.branches?.length) return reply.code(400).send({ error: '至少需要一個被測分支' })
-      const result = createExperiment({
-        name: body.name.trim(),
-        kind: body.kind ?? 'A',
-        datasetVersionId: body.datasetVersionId,
-        scoringProfileVersionId: body.scoringProfileVersionId,
-        repeats: body.repeats ?? 1,
-        branches: body.branches,
-        externalConditions: body.externalConditions,
-      })
-      if (result.ok) audit(req, 'experiment.create', 'experiment', result.experimentId, { name: body.name.trim(), kind: body.kind ?? 'A', datasetVersionId: body.datasetVersionId, scoringProfileVersionId: body.scoringProfileVersionId, repeats: body.repeats ?? 1, branchCount: body.branches.length })
-      if (!result.ok) return reply.code(409).send({ error: '可重現四元組不完整，拒絕啟動', missing: result.missing })
-      return reply.code(201).send(result)
-    } catch (e) {
-      return reply.code(400).send({ error: (e as Error).message })
-    }
   })
 
   app.get('/api/experiments/:id', async (req, reply) => {
@@ -828,6 +750,88 @@ export function registerRoutes(app: FastifyInstance): void {
       return { seeded: true, experimentId: exp.ok ? exp.experimentId : null }
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message })
+    }
+  })
+}
+
+/** Shared create/publish contracts for the web and authenticated integrations. */
+export function registerCreationRoutes(app: FastifyInstance, prefix = '/api'): void {
+  app.post(`${prefix}/agents`, async (req, reply) => {
+    try {
+      const body = req.body as { config?: unknown; secret?: string }
+      const config = normalizeConfig(body.config)
+      const secret = body.secret ?? null
+      const validation = await probe(config, secret)
+      if (!boolOk(validation)) {
+        return reply.code(400).send({ error: '連線驗證未通過，未儲存', validation })
+      }
+      const result = db.transaction(() => createAgent(config, secret, validation))()
+      audit(req, 'agent.create', 'agent', result.id, { name: config.name, platformType: config.platformType, endpoint: config.endpoint, authType: config.authType, allowWrite: config.allowWrite })
+      return reply.code(201).send({ ...result, validation })
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
+  app.post(`${prefix}/test-sets`, async (req, reply) => {
+    try {
+      const body = req.body as { name?: string; description?: string; cases?: Array<Omit<CaseInput, 'id'>> }
+      if (!body.name?.trim()) return reply.code(400).send({ error: '測試集名稱必填' })
+      const id = db.transaction(() => createTestSet({
+        name: body.name!.trim(),
+        description: body.description ?? '',
+        cases: body.cases ?? [],
+      }))()
+      audit(req, 'test_set.create', 'test_set', id)
+      return reply.code(201).send({ id })
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
+  app.post(`${prefix}/test-sets/:id/publish`, async (req, reply) => {
+    try {
+      const { id } = req.params as { id: string }
+      const body = req.body as { scoringProfileVersionId?: string }
+      const scoringId = body.scoringProfileVersionId ?? ensureDefaultScoringProfileVersion()
+      const result = publishTestSet(id, scoringId)
+      audit(req, 'test_set.publish', 'test_set_version', result.versionId, { versionId: result.versionId, caseCount: getTestSetDetail(id)?.cases.length ?? 0 })
+      return reply.code(201).send(result)
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
+  app.post(`${prefix}/experiments`, async (req, reply) => {
+    try {
+      const body = req.body as {
+        name?: string
+        kind?: 'A' | 'B'
+        datasetVersionId?: string
+        scoringProfileVersionId?: string
+        repeats?: number
+        branches?: Array<{ role: string; agentVersionId: string; variables?: Record<string, string> }>
+        externalConditions?: Record<string, string>
+      }
+      if (!body.name?.trim()) return reply.code(400).send({ error: '實驗名稱必填' })
+      if (!body.datasetVersionId || !body.scoringProfileVersionId) {
+        return reply.code(400).send({ error: '測試集版本與評分規則集版本必選' })
+      }
+      if (!body.branches?.length) return reply.code(400).send({ error: '至少需要一個被測分支' })
+      const result = createExperiment({
+        name: body.name.trim(),
+        kind: body.kind ?? 'A',
+        datasetVersionId: body.datasetVersionId,
+        scoringProfileVersionId: body.scoringProfileVersionId,
+        repeats: body.repeats ?? 1,
+        branches: body.branches,
+        externalConditions: body.externalConditions,
+      })
+      if (result.ok) audit(req, 'experiment.create', 'experiment', result.experimentId, { name: body.name.trim(), kind: body.kind ?? 'A', datasetVersionId: body.datasetVersionId, scoringProfileVersionId: body.scoringProfileVersionId, repeats: body.repeats ?? 1, branchCount: body.branches.length })
+      if (!result.ok) return reply.code(409).send({ error: '可重現四元組不完整，拒絕啟動', missing: result.missing })
+      return reply.code(201).send(result)
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
     }
   })
 }

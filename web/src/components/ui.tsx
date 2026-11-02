@@ -318,14 +318,29 @@ export function Drawer({
   footer?: ReactNode
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
 
   useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeRef.current() }
+      if (e.key === 'Tab') {
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []).filter((element) => element.getClientRects().length > 0)
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (!first) { e.preventDefault(); dialogRef.current?.focus(); return }
+        if (e.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) { e.preventDefault(); last?.focus() }
+        else if (!e.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) { e.preventDefault(); first.focus() }
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      queueMicrotask(() => { if (previous?.isConnected) previous.focus(); else document.querySelector<HTMLElement>('main button')?.focus() })
+    }
+  }, [])
 
   // 開啟時焦點進第一個欄位，鍵盤操作不用先 Tab 一輪
   useEffect(() => {
@@ -335,7 +350,7 @@ export function Drawer({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="drawer" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="drawer" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
         <div className="drawer-head spread">
           <div className="card-title">{title}</div>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="關閉">

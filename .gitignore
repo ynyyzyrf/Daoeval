@@ -1,5 +1,8 @@
 # 依賴
 node_modules/
+.env
+.env.*
+!.env.example
 
 # 本機資料庫與憑證金鑰（不得入庫）
 .data/

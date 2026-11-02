@@ -8,7 +8,9 @@ import { ExperimentsListPage, ExperimentDetailPage } from './pages/experiments.t
 import { OverviewPage } from './pages/overview.tsx'
 import { ReportDetailPage, ReportListPage } from './pages/report.tsx'
 import { SettingsPage } from './pages/settings.tsx'
+import { ModelsPage } from './pages/models.tsx'
 import { TestSetDetailPage, TestSetsListPage } from './pages/testsets.tsx'
+import { useAuth } from './components/AuthGate.tsx'
 
 interface Hit {
   kind: string
@@ -43,6 +45,7 @@ function activeKey(route: Route): string {
   if (route.name.startsWith('experiment')) return 'experiments'
   if (route.name.startsWith('report')) return 'report'
   if (route.name === 'settings') return 'settings'
+  if (route.name === 'models') return 'models'
   return 'overview'
 }
 
@@ -72,12 +75,14 @@ function crumbs(route: Route, entityName: string | null): Array<{ label: string;
       return [home, { label: '報告', onClick: () => navigate('/report') }, { label: loading }]
     case 'settings':
       return [home, { label: '設定' }]
+    case 'models':
+      return [home, { label: '評估模型' }]
     default:
       return [home, { label: '概覽' }]
   }
 }
 
-const LIST_ROUTES = ['overview', 'agents', 'testsets', 'experiments', 'report', 'settings']
+const LIST_ROUTES = ['overview', 'agents', 'testsets', 'experiments', 'report', 'models', 'settings']
 
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('')
@@ -96,6 +101,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
           { kind: '跳轉', label: '實驗列表', path: '/experiments' },
           { kind: '跳轉', label: '報告列表', path: '/report' },
           { kind: '跳轉', label: '設定', path: '/settings' },
+          { kind: '跳轉', label: '評估模型', path: '/models' },
           ...agents.map((a) => ({ kind: 'Agent', label: a.name, path: `/agents/${a.id}` })),
           ...sets.map((s) => ({ kind: '測試集', label: s.name, path: `/testsets/${s.id}` })),
           ...experiments.map((e) => ({ kind: '實驗', label: e.name, path: `/experiments/${e.id}` })),
@@ -193,6 +199,8 @@ function Page({ route }: { route: Route }) {
       return <ReportDetailPage id={route.id} trialId={route.trialId} />
     case 'settings':
       return <SettingsPage />
+    case 'models':
+      return <ModelsPage />
     default:
       return null
   }
@@ -205,6 +213,7 @@ const PAGE_NAMES: Record<string, string> = {
   experiments: '實驗',
   report: '報告',
   settings: '設定',
+  models: '評估模型',
 }
 
 function pageName(key: string): string {
@@ -212,6 +221,7 @@ function pageName(key: string): string {
 }
 
 export function App() {
+  const auth = useAuth()
   const route = useRoute()
   const current = activeKey(route)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -383,6 +393,7 @@ export function App() {
           {navButton('testsets', '測試集', '/testsets', 'testsets')}
           {navButton('experiments', '實驗', '/experiments', 'experiments')}
           {navButton('report', '報告', '/report', 'report')}
+          {navButton('models', '評估模型', '/models', 'star')}
           {navButton('settings', '設定', '/settings', 'settings')}
 
           {recent.length > 0 && (
@@ -441,6 +452,7 @@ export function App() {
             )}
           </div>
           <div className="topbar-actions">
+            <Button size="sm" onClick={() => void auth.logout()} title={auth.username}>登出</Button>
             <div className="topbar-action-group">
               <Button variant="icon" onClick={() => setPaletteOpen(true)} aria-label="搜尋">
                 <Icon name="search" size={15} />
@@ -461,11 +473,11 @@ export function App() {
               >
                 導出
               </Button>
-            ) : (
+            ) : route.name !== 'models' ? (
               <Button variant="primary" onClick={openNewExperiment}>
                 新建
               </Button>
-            )}
+            ) : null}
           </div>
         </header>
 

@@ -1,0 +1,16 @@
+.git
+node_modules
+.data*
+.tmp
+tmp
+web/dist
+shots
+export-test
+.env*
+*.log
+*.db
+*.db-wal
+*.db-shm
+.codex
+.agents
+docs

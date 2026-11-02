@@ -13,6 +13,7 @@ export type Route =
   | { name: 'report' }
   | { name: 'report-detail'; id: string; trialId?: string }
   | { name: 'settings' }
+  | { name: 'models' }
 
 /**
  * 由網址解析路由。接受路徑形式（/report/exp_1?trial=trial_1）與舊的 hash 形式（#/report/exp_1），
@@ -44,6 +45,7 @@ export function parseRoute(url: string): Route {
       : { name: 'report' }
   }
   if (head === 'settings') return { name: 'settings' }
+  if (head === 'models') return { name: 'models' }
   return { name: 'overview' }
 }
 

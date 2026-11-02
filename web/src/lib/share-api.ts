@@ -1,6 +1,8 @@
 /**
  * 分享連結的前端接口。獨立於 `api.ts`，避免和正在改導入頁的同事撞檔。
  */
+import { notifyUnauthorized } from './auth.ts'
+
 export interface ShareLink {
   id: string
   path: string | null
@@ -55,6 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {
+    notifyUnauthorized(res.status)
     const error = new Error(data?.message ?? data?.error ?? `請求失敗（${res.status}）`)
     ;(error as Error & { status?: number }).status = res.status
     throw error

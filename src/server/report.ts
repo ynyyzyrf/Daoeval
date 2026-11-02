@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync, mkdtempSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -466,16 +466,20 @@ let edgePath: string | null | undefined
 function findEdge(): string | null {
   if (edgePath !== undefined) return edgePath
   const candidates = [
+    process.env.AEVAL_BROWSER_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
   ]
-  edgePath = candidates.find((p) => existsSync(p)) ?? null
+  edgePath = candidates.find((p): p is string => typeof p === 'string' && existsSync(p)) ?? null
   return edgePath
 }
 
-/** 用本機 Edge/Chrome 的 headless print-to-pdf 生成 PDF；找不到瀏覽器時回傳 null */
+/** 用 Chromium/Edge/Chrome 的 headless print-to-pdf 生成 PDF；找不到瀏覽器時回傳 null */
 export async function renderReportPdf(html: string): Promise<Buffer | null> {
   const browser = findEdge()
   if (!browser) return null
@@ -488,6 +492,8 @@ export async function renderReportPdf(html: string): Promise<Buffer | null> {
       browser,
       [
         '--headless=new',
+        // Container isolation replaces Chromium's sandbox only when explicitly enabled.
+        ...(process.env.AEVAL_BROWSER_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
         '--disable-gpu',
         '--no-first-run',
         '--no-default-browser-check',
@@ -503,12 +509,10 @@ export async function renderReportPdf(html: string): Promise<Buffer | null> {
   } catch {
     return null
   } finally {
-    setTimeout(() => {
-      try {
-        unlinkSync(htmlPath)
-      } catch {
-        // 臨時檔清理失敗不影響匯出結果
-      }
-    }, 1000)
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // 臨時檔清理失敗不影響匯出結果
+    }
   }
 }

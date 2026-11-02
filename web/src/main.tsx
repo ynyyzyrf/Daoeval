@@ -2,11 +2,14 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App.tsx'
 import { ToastProvider } from './components/ui.tsx'
 import { SharePage } from './pages/share.tsx'
+import { AuthGate } from './components/AuthGate.tsx'
 import './tokens.css'
 import './fonts.css'
 import './styles.css'
 import './narrow.css'
 import './share.css'
+import './login.css'
+import './models.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('#root 不存在')
@@ -19,7 +22,7 @@ createRoot(root).render(
     <SharePage token={shareMatch[1]!} />
   ) : (
     <ToastProvider>
-      <App />
+      <AuthGate><App /></AuthGate>
     </ToastProvider>
   ),
 )

@@ -5,6 +5,8 @@ import { extname, join } from 'node:path'
 import { registerRoutes } from './routes.ts'
 import { registerAiEvaluationRoutes } from './ai-evaluation.ts'
 import { SHARE_SECURITY_HEADERS, registerShareRoutes } from './share.ts'
+import { registerExternalApi } from './external-api.ts'
+import { registerAuth } from './auth.ts'
 
 export interface BuildAppOptions {
   /** 前端建置產物目錄；預設為 web/dist */
@@ -19,9 +21,12 @@ export interface BuildAppOptions {
  */
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: 'warn' } })
+  registerAuth(app)
+  app.get('/healthz', async () => ({ status: 'ok' }))
   registerRoutes(app)
   registerAiEvaluationRoutes(app)
   registerShareRoutes(app)
+  await registerExternalApi(app)
 
   const dist = options.dist ?? join(process.cwd(), 'web', 'dist')
   if (existsSync(dist)) {

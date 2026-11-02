@@ -12,7 +12,18 @@ export interface AnswerComparison {
   differences: Array<{ kind: DifferenceKind; referenceQuote: string; actualQuote: string; explanation: string }>
   suggestions: string[]
 }
+export interface JudgeModelProfile {
+  id: string
+  name: string
+  model: string
+  endpoint: string
+  keyMask: string | null
+}
 export interface JudgeSettings {
+  name: string
+  endpoint: string
+  activeProfileId: string | null
+  profiles: JudgeModelProfile[]
   model: string
   configured: boolean
   keyMask: string | null
@@ -31,6 +42,8 @@ export interface AnswerEvaluationBatch {
   runId: string
   status: 'running' | 'completed' | 'interrupted'
   model: string
+  providerName: string
+  endpoint: string
   promptVersion: string
   createdAt: string
   finishedAt: string | null
