@@ -1,0 +1,6 @@
+.archive-filter { display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 4px; padding: 3px; background: var(--hover); border-radius: 8px; }
+.archive-filter button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: none; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-cap); cursor: pointer; transition: background-color 150ms ease, color 150ms ease; }
+.archive-filter button:hover { color: var(--ink); }
+.archive-filter button[aria-pressed="true"] { background: var(--panel); color: var(--ink); font-weight: 600; }
+.archive-filter button:focus-visible { outline: none; box-shadow: var(--ring-acc); }
+.archive-filter button span { color: var(--dim); font-size: var(--fs-pill); font-weight: 400; font-variant-numeric: tabular-nums; }

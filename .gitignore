@@ -1,0 +1,26 @@
+# 依賴
+node_modules/
+
+# 本機資料庫與憑證金鑰（不得入庫）
+.data/
+.agents
+.codex
+.data-*/
+*.db
+*.db-wal
+*.db-shm
+
+# 前端建置產物
+web/dist/
+
+# 本機導出測試件
+export-test/
+
+# 截圖（驗收產物不進版本庫；文件用圖在 docs/）
+shots/
+
+# 日誌與暫存
+*.log
+tmp/
+.taste-skill/
+.tmp/

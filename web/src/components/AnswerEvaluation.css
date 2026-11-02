@@ -1,0 +1,10 @@
+.answer-evaluation-panel { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.answer-evaluation-panel .spread { flex-wrap: wrap; }
+.answer-evaluation-counts { gap: 6px 16px; font-variant-numeric: tabular-nums; }
+.answer-evaluation-link { border: none; background: none; color: var(--acc); font: inherit; cursor: pointer; padding: 0 4px; text-decoration: underline; }
+.answer-evaluation-history { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.answer-evaluation-history button { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); padding: 6px 8px; font: inherit; font-size: var(--fs-pill); text-align: left; cursor: pointer; }
+.answer-evaluation-history button[aria-pressed="true"] { color: var(--nav-sel-ink); background: var(--nav-sel-bg); }
+.answer-evaluation-history button:focus-visible, .answer-evaluation-link:focus-visible { outline: none; box-shadow: var(--ring-acc); }
+.answer-difference { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.answer-difference blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }

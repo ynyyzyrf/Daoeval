@@ -1,0 +1,33 @@
+{
+  "name": "daoeval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "tsx src/server/index.ts",
+    "build:web": "tsx scripts/check-tokens.ts && vite build",
+    "web:dev": "vite",
+    "check:tokens": "tsx scripts/check-tokens.ts",
+    "smoke": "tsx scripts/check-tokens.ts && tsx scripts/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.4",
+    "better-sqlite3": "^11.8.1",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.2.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

@@ -1,0 +1,102 @@
+/*
+ * 窄屏（≤480px）布局兜底。
+ *
+ * 只修 390 宽度下的布局崩坏，不动视觉与桌面端：
+ * 1. 卡片网格落成单列，标题不再被压成竖排；
+ * 2. 表格在卡片里横向滚动，右侧列不再被切掉；
+ * 3. 页头/卡片头操作区允许换行，按钮不再顶出容器；
+ * 4. 列表与详情在窄屏上下排，不再互相压成 0 宽。
+ *
+ * 放在独立文件里，避免和别的开发同时改 styles.css。
+ */
+@media (max-width: 480px) {
+  /* 1. 卡片网格落成单列 */
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .grid-branches {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 2. 表格：卡片内横向滚动 */
+  .card:has(table.data) {
+    overflow-x: auto;
+  }
+  .card table.data,
+  .table-wrap table.data {
+    min-width: 520px;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  .table-toolbar .grow {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+  .bulk-bar {
+    flex-wrap: wrap;
+  }
+
+  /* 3. 页头与卡片头：允许换行，按钮不顶出容器 */
+  .page-head,
+  .card-head {
+    flex-wrap: wrap;
+  }
+  .page-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .page-actions .btn,
+  .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .card-head .btn {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  /* 顶栏面包屑压成一行省略，操作按钮保持可点 */
+  .breadcrumb {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .breadcrumb .current {
+    max-width: 100%;
+  }
+
+  /* 分页按钮允许换行 */
+  .pager {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pager-buttons {
+    flex-wrap: wrap;
+  }
+
+  /* 4. 列表与详情上下排 */
+  .workbench {
+    flex-direction: column;
+  }
+  .workbench-body {
+    flex-direction: column;
+    flex: none;
+  }
+  .workbench-list {
+    min-height: 300px;
+  }
+  .workbench-detail {
+    width: auto;
+    flex: 1 1 auto;
+    min-height: 320px;
+  }
+
+  /* 详情键值对竖排，长值不撑破 */
+  .kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
