@@ -33,6 +33,7 @@ import {
   runManualTrial,
   saveCases,
   updateAgent,
+  renameAgentVersion,
   getExperiment,
   getSecretForAgent,
   getRunSummary,
@@ -71,6 +72,7 @@ function normalizeConfig(raw: unknown): AgentConfig {
   const c = (raw ?? {}) as Partial<AgentConfig>
   if (!c.name || !String(c.name).trim()) throw new Error('Agent 名稱必填')
   if (!c.endpoint || !String(c.endpoint).trim()) throw new Error('API 地址必填')
+  if (c.versionInfo?.versionName !== undefined && (typeof c.versionInfo.versionName !== 'string' || c.versionInfo.versionName.trim().length > 120)) throw new Error('版本名稱最多 120 個字元')
   const platformType = c.platformType ?? 'custom_http'
   return {
     name: String(c.name).trim(),
@@ -296,6 +298,17 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   })
 
+  app.patch('/api/agents/:id/versions/:versionId/name', async (req, reply) => {
+    try {
+      const { id, versionId } = req.params as { id: string; versionId: string }
+      const result = renameAgentVersion(id, versionId, (req.body as { versionName?: unknown } | null)?.versionName)
+      audit(req, 'agent.version.rename', 'agent_version', versionId, { agentId: id, ...result })
+      return { versionName: result.versionName }
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
   app.post('/api/agents/:id/versions/:versionId/disable', async (req, reply) => {
     try {
       const { id, versionId } = req.params as { id: string; versionId: string }
@@ -480,6 +493,7 @@ export function registerRoutes(app: FastifyInstance): void {
     const picked = runId ? null : pickMetricsRun(id)
     const selected = runId ? getRunSummary(runId) : picked ? getRunSummary(picked.id) : null
     if (selected && !experiment.runs.some((run) => run.id === selected.id)) return reply.code(404).send({ error: '執行不屬於此實驗' })
+    const repeats = selected?.repeats ?? experiment.frozen.repeats
     const trials = selected ? getExperiment(id, selected.id)!.trials : []
     const cases = experiment.frozen.dataset.cases as CaseInput[]
     // 與上一版比較：取同一實驗較早的一個有結果批次
@@ -502,7 +516,7 @@ export function registerRoutes(app: FastifyInstance): void {
       experimentId: id,
       run: selected,
       previousRun,
-      repeats: experiment.frozen.repeats,
+      repeats,
       branches: experiment.branches.map((branch) => {
         const branchTrials = trials
           .filter((t) => t.branchId === branch.id)
@@ -513,11 +527,11 @@ export function registerRoutes(app: FastifyInstance): void {
             normalized: t.normalized,
             scorePassed: t.score?.passed ?? null,
           }))
-        const metrics = computeMetrics(cases, branchTrials, experiment.frozen.repeats)
+        const metrics = computeMetrics(cases, branchTrials, repeats)
         const conclusion = buildConclusion({
           cases,
           previous: previousVerdicts,
-          repeats: experiment.frozen.repeats,
+          repeats,
           trials: branchTrials.map((t) => ({
             caseId: t.caseId,
             status: t.status,
@@ -543,30 +557,30 @@ export function registerRoutes(app: FastifyInstance): void {
   // ---- 報告導出 ----
   app.get('/api/experiments/:id/export.json', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const { runId } = req.query as { runId?: string }
-    const data = buildReport(id, runId)
+    const { runId, aiBatchId } = req.query as { runId?: string; aiBatchId?: string }
+    const data = buildReport(id, runId, aiBatchId)
     if (!data) return reply.code(404).send({ error: '實驗不存在' })
     reply.header('content-type', 'application/json; charset=utf-8')
     reply.header('content-disposition', `attachment; filename="eval-report-${id}.json"`)
-    audit(req, 'report.export.json', 'report', id, { runId: runId ?? null })
+    audit(req, 'report.export.json', 'report', id, { runId: data.run?.id ?? null, aiBatchId: data.aiEvaluation?.batch.id ?? null })
     return JSON.stringify(data, null, 2)
   })
 
   app.get('/api/experiments/:id/export.html', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const { runId } = req.query as { runId?: string }
-    const data = buildReport(id, runId)
+    const { runId, aiBatchId } = req.query as { runId?: string; aiBatchId?: string }
+    const data = buildReport(id, runId, aiBatchId)
     if (!data) return reply.code(404).send({ error: '實驗不存在' })
     reply.header('content-type', 'text/html; charset=utf-8')
     reply.header('content-disposition', `attachment; filename="eval-report-${id}.html"`)
-    audit(req, 'report.export.html', 'report', id, { runId: runId ?? null })
+    audit(req, 'report.export.html', 'report', id, { runId: data.run?.id ?? null, aiBatchId: data.aiEvaluation?.batch.id ?? null })
     return renderReportHtml(data)
   })
 
   app.get('/api/experiments/:id/export.pdf', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const { runId } = req.query as { runId?: string }
-    const data = buildReport(id, runId)
+    const { runId, aiBatchId } = req.query as { runId?: string; aiBatchId?: string }
+    const data = buildReport(id, runId, aiBatchId)
     if (!data) return reply.code(404).send({ error: '實驗不存在' })
     const pdf = await renderReportPdf(renderReportHtml(data))
     if (!pdf) {
@@ -574,7 +588,7 @@ export function registerRoutes(app: FastifyInstance): void {
     }
     reply.header('content-type', 'application/pdf')
     reply.header('content-disposition', `attachment; filename="eval-report-${id}.pdf"`)
-    audit(req, 'report.export.pdf', 'report', id, { runId: runId ?? null })
+    audit(req, 'report.export.pdf', 'report', id, { runId: data.run?.id ?? null, aiBatchId: data.aiEvaluation?.batch.id ?? null })
     return pdf
   })
 

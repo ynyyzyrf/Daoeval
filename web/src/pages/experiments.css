@@ -1,0 +1,10 @@
+.experiment-setup { display: grid; gap: 24px; }
+.experiment-setup > p { margin: 0; }
+.experiment-setup-section { display: grid; gap: 14px; }
+.experiment-setup-section + .experiment-setup-section { border-top: 1px solid var(--border); padding-top: 24px; }
+.experiment-setup-section h3 { font-size: 15px; margin: 0; }
+.experiment-setup-section p { margin: 0; }
+.experiment-setup-section summary { cursor: pointer; font-size: 13px; padding: 8px 0; }
+.experiment-advanced { display: grid; gap: 14px; padding-top: 12px; }
+.experiment-setup-summary { display: grid; gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.experiment-setup-summary strong { font-size: 13px; }

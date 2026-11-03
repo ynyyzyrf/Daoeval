@@ -10,6 +10,14 @@ db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS web_session (
+  token_hash TEXT PRIMARY KEY,
+  auth_fingerprint TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_web_session_expires ON web_session(expires_at);
+
 CREATE TABLE IF NOT EXISTS agent (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
@@ -315,6 +323,8 @@ CREATE TABLE IF NOT EXISTS ai_evaluation (
   input TEXT NOT NULL,
   result TEXT,
   error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  inherited INTEGER NOT NULL DEFAULT 0,
   UNIQUE(batch_id, trial_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ai_evaluation_batch ON ai_evaluation(batch_id);
@@ -322,6 +332,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_evaluation_batch ON ai_evaluation(batch_id);
 
 export function migrate(): void {
   db.exec(SCHEMA)
+  const evaluationColumns = db.prepare('PRAGMA table_info(ai_evaluation)').all() as Array<{ name: string }>
+  if (!evaluationColumns.some((column) => column.name === 'attempts')) db.exec('ALTER TABLE ai_evaluation ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0')
+  if (!evaluationColumns.some((column) => column.name === 'inherited')) db.exec('ALTER TABLE ai_evaluation ADD COLUMN inherited INTEGER NOT NULL DEFAULT 0')
   const judgeColumns = db.prepare('PRAGMA table_info(ai_judge_settings)').all() as Array<{ name: string }>
   for (const [name, definition] of [
     ['name', "TEXT NOT NULL DEFAULT 'DeepSeek'"],
@@ -333,6 +346,7 @@ export function migrate(): void {
     db.exec("UPDATE ai_judge_settings SET profile_id='legacy-deepseek' WHERE profile_id IS NULL")
   })()
   const batchColumns = db.prepare('PRAGMA table_info(ai_evaluation_batch)').all() as Array<{ name: string }>
+  if (!batchColumns.some((column) => column.name === 'source_batch_id')) db.exec('ALTER TABLE ai_evaluation_batch ADD COLUMN source_batch_id TEXT REFERENCES ai_evaluation_batch(id)')
   if (!batchColumns.some((column) => column.name === 'provider_name')) db.exec("ALTER TABLE ai_evaluation_batch ADD COLUMN provider_name TEXT NOT NULL DEFAULT 'DeepSeek'")
   if (!batchColumns.some((column) => column.name === 'api_endpoint')) db.exec("ALTER TABLE ai_evaluation_batch ADD COLUMN api_endpoint TEXT NOT NULL DEFAULT 'https://api.deepseek.com/chat/completions'")
   const experimentColumns = db.prepare('PRAGMA table_info(experiment)').all() as Array<{ name: string }>
@@ -341,6 +355,18 @@ export function migrate(): void {
   if (!caseColumns.some((column) => column.name === 'judgement')) db.exec('ALTER TABLE test_case ADD COLUMN judgement TEXT')
   const trialColumns = db.prepare('PRAGMA table_info(trial)').all() as Array<{ name: string }>
   if (!trialColumns.some((column) => column.name === 'run_id')) db.exec('ALTER TABLE trial ADD COLUMN run_id TEXT')
+  const versionColumns = db.prepare('PRAGMA table_info(agent_version)').all() as Array<{ name: string }>
+  if (!versionColumns.some((column) => column.name === 'version_name')) {
+    db.exec("ALTER TABLE agent_version ADD COLUMN version_name TEXT NOT NULL DEFAULT ''")
+    const rows = db.prepare('SELECT id, version_no, snapshot FROM agent_version').all() as Array<{ id: string; version_no: number; snapshot: string }>
+    db.transaction(() => {
+      const update = db.prepare('UPDATE agent_version SET version_name = ? WHERE id = ?')
+      for (const row of rows) {
+        const info = (JSON.parse(row.snapshot) as { versionInfo?: { versionName?: string; model?: string } }).versionInfo
+        update.run(info?.versionName?.trim() || info?.model?.trim() || `v${row.version_no}`, row.id)
+      }
+    })()
+  }
   const agentColumns = db.prepare('PRAGMA table_info(agent)').all() as Array<{ name: string }>
   if (!agentColumns.some((column) => column.name === 'targeting')) db.exec('ALTER TABLE agent ADD COLUMN targeting TEXT')
   const runColumns = db.prepare('PRAGMA table_info(run)').all() as Array<{ name: string }>

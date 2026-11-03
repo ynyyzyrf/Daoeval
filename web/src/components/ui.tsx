@@ -311,11 +311,13 @@ export function Drawer({
   onClose,
   children,
   footer,
+  className = '',
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
+  className?: string
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -350,7 +352,7 @@ export function Drawer({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="drawer" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`drawer ${className}`} ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
         <div className="drawer-head spread">
           <div className="card-title">{title}</div>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="關閉">

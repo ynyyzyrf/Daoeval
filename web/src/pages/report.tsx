@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { businessRationale, failureText, judgementSentence, trialFailureText, unknownReasonFor } from '../../../src/shared/vocabulary.ts'
 import { ANSWER_VERDICTS } from '../../../src/shared/ai-evaluation.ts'
+import { summarizeAiReport } from '../../../src/shared/ai-report.ts'
 import { api, type Conclusion, type ExperimentDetail, type ExperimentSummary, type MetricsResponse } from '../api.ts'
 import { DataTable, type Column } from '../components/DataTable.tsx'
-import { Badge, Button, Card, EmptyState, ErrorState, Kbd, Notice, PageTitle, SkeletonBlock } from '../components/ui.tsx'
+import { Badge, Button, Drawer, EmptyState, ErrorState, Kbd, Notice, PageTitle, SkeletonBlock } from '../components/ui.tsx'
+import { ModelComparisonView } from '../components/ModelComparison.tsx'
 import { MetricCompare } from '../components/MetricCompare.tsx'
-import { RunSwitcher } from '../components/RunSwitcher.tsx'
+import { ReportOverview, type ReportPanel } from '../components/ReportOverview.tsx'
 import { AnswerEvaluationDetail, AnswerEvaluationPanel, useAnswerEvaluations } from '../components/AnswerEvaluation.tsx'
-import { formatDateTime } from '../lib/format.ts'
+import { formatAgentTime, formatDateTime } from '../lib/format.ts'
 import { roleLabel } from '../lib/labels.ts'
 import { navigate } from '../lib/router.ts'
 
@@ -22,6 +24,7 @@ interface TrialRow {
   status: RowStatus
   scoreText: string
   latencyMs: number
+  executionStatus: string
   category: string
   categoryCode: string | null
   startedAt: string
@@ -119,7 +122,15 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(trialId ?? null)
   const [filter, setFilter] = useState<'all' | RowStatus>('all')
+  const [reportView, setReportView] = useState<'comparison'|'details'>('comparison')
   const [showFilters, setShowFilters] = useState(false)
+  const [panel, setPanel] = useState<ReportPanel | 'trial' | null>(null)
+  useEffect(() => {
+    if (panel) document.querySelector<HTMLElement>('.report-page [role="dialog"]')?.focus()
+  }, [panel])
+  useEffect(() => {
+    if (panel === 'trial') document.querySelector('.report-trial-drawer .drawer-body')?.scrollTo({ top: 0 })
+  }, [panel, selectedId])
 
   const load = async (requestedRunId: string | null = viewRunId) => {
     setError(null)
@@ -134,6 +145,7 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
       setMetrics(metricsData)
       setViewRunId(selectedRunId)
       setSelectedId(trialId ?? null)
+      setPanel(trialId && detailData.trials.some((item) => item.id === trialId) ? 'trial' : null)
     } catch (e) {
       setError((e as Error).message)
       setMetrics(null)
@@ -177,6 +189,7 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
         status,
         scoreText: status === 'blocked' || status === 'n/a' ? '—' : trial.score?.passed === true ? '1.00' : '0.00',
         latencyMs: trial.latencyMs,
+        executionStatus: trial.normalized.status,
         category,
         categoryCode: code,
         startedAt: trial.createdAt,
@@ -220,6 +233,7 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
     rows[0] ??
     null
   const trial = detail.trials.find((t) => t.id === selected?.id)
+  const selectedIndex = visible.findIndex((row) => row.id === selected?.id)
   const failure = (() => {
     if (!trial) return null
     if (selected?.status === 'n/a') {
@@ -236,6 +250,7 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
   const caseCount = detail.frozen.dataset.cases.length
   const branchCount = detail.branches.length
   const conclusion: Conclusion | null = metrics?.branches[0]?.conclusion ?? null
+  const aiReport = aiEvaluation.batch?.runId === viewRunId ? summarizeAiReport(aiEvaluation.batch) : null
 
   const traceSteps: Array<{ time: string; text: string; key?: boolean }> = (() => {
     const value = trial?.normalized.trace.value as { steps?: Array<{ step?: number; action?: string; ms?: number }> } | null
@@ -250,162 +265,28 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
     return [{ time: '—', text: '有執行紀錄，但沒有步驟明細', key: true }]
   })()
 
-  const exportButtons = (
-    <>
-      <Button onClick={() => window.open(`/api/experiments/${id}/export.pdf${viewRunId ? `?runId=${encodeURIComponent(viewRunId)}` : ''}`, '_blank')}>匯出 PDF</Button>
-      <Button onClick={() => window.open(`/api/experiments/${id}/export.json${viewRunId ? `?runId=${encodeURIComponent(viewRunId)}` : ''}`, '_blank')}>匯出原始資料</Button>
-      <Button onClick={() => window.open(`/api/experiments/${id}/export.html${viewRunId ? `?runId=${encodeURIComponent(viewRunId)}` : ''}`, '_blank')}>匯出 HTML</Button>
-    </>
-  )
-
-  return (
-    <div className="workbench-page">
-      <div className="workbench-head">
-      <div className="page-head">
-        <PageTitle lead="報告" strong={detail.name} />
-        {detail.runs.length > 0 && (
-          <RunSwitcher runs={detail.runs} value={viewRunId} onChange={(runId) => void load(runId)} />
-        )}
-      </div>
-      <AnswerEvaluationPanel state={aiEvaluation} detail={detail} runId={viewRunId} />
-      {conclusion && (
-        <section className="report-conclusion">
-          <h1 className="conclusion-headline">{conclusion.headline}</h1>
-          <div className="conclusion-numbers">
-            <div className="conclusion-number">
-              <div className="label">通過率</div>
-              <div className="value">{conclusion.passRateText}</div>
-              <div className="sub">{conclusion.passedCases} / {conclusion.judgedCases} 條用例</div>
-            </div>
-            <div className="conclusion-number">
-              <div className="label">樣本量與可信度</div>
-              <div className="value">{caseCount} 條 · {rows.length} 次</div>
-              <div className="sub">{conclusion.sampleText}</div>
-            </div>
-            <div className="conclusion-number">
-              <div className="label">與上一版比</div>
-              <div className="value">{conclusion.deltaValue === null ? '無可比較' : `${conclusion.deltaValue > 0 ? '改善' : conclusion.deltaValue < 0 ? '退步' : '持平'}`}</div>
-              <div className="sub">{conclusion.deltaText}</div>
-            </div>
-          </div>
-        </section>
-      )}
-      {metrics && metrics.branches.length >= 2 && (
-        <Card title="A/B 對比" subtitle="以基線與實驗組的百分點差異比較各項能力。">
-          {metrics.run?.source === 'legacy' && <Notice tone="warn">歷史批次：這批試驗建立於執行歸屬功能上線前，數字可能不完整</Notice>}
-          <MetricCompare metrics={metrics} repeats={detail.frozen.repeats} />
-        </Card>
-      )}
-      </div>
-      <div className="workbench-body">
-      <section className="workbench-list">
-        <div className="list-head">
-          <div>
-            <span className="list-title">{rows.length} 次試驗</span>
-            <span className="list-sub">
-              {caseCount} 案例 × {branchCount} 分支
-            </span>
-          </div>
-          <div className="row">{exportButtons}</div>
-        </div>
-
-        {showFilters && (
-          <div className="filter-row">
-            {(
-              [
-                ['all', `全部 ${rows.length}`],
-                ['failed', `失敗 ${counts.failed}`],
-                ['blocked', `攔截 ${counts.blocked}`],
-                ['n/a', `無法判斷 ${counts.na}`],
-                ['passed', `通過 ${counts.passed}`],
-              ] as Array<[typeof filter, string]>
-            ).map(([key, label]) => (
-              <button key={key} type="button" className={`chip ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="list-body">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>案例</th>
-                <th>分支</th>
-                <th>狀態</th>
-                <th className="right">分數</th>
-                <th className="right">耗時</th>
-                <th>原因</th>
-                <th>AI 評估</th>
-                <th className="right">開始</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => (
-                <tr
-                  key={row.id}
-                  className={`clickable ${selected?.id === row.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedId(row.id)}
-                >
-                  <td>{row.caseName}</td>
-                  <td className="mono">{row.branchRole}</td>
-                  <td>
-                    <Badge tone={STATUS_TEXT[row.status].tone}>{STATUS_TEXT[row.status].text}</Badge>
-                  </td>
-                  <td className="right mono">{row.scoreText}</td>
-                  <td className="right mono" style={{ whiteSpace: 'nowrap' }}>{row.latencyMs} ms</td>
-                  <td className="mono dim" title={row.categoryCode ?? undefined}>
-                    {row.category}
-                  </td>
-                  <td className="sm">{(() => {
-                    const evaluation = aiEvaluation.batch?.evaluations.find((item) => item.trialId === row.id)
-                    return evaluation?.result ? ANSWER_VERDICTS[evaluation.result.verdict] : evaluation?.status === 'running' ? '評估中' : evaluation?.status === 'pending' ? '等待中' : evaluation?.status === 'skipped' ? '未送評' : evaluation ? '未完成評估' : '未評估'
-                  })()}</td>
-                  <td className="right mono dim">{row.startedAt.slice(11, 19)}</td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr>
-                  <td colSpan={8}>
-                    <EmptyState title="還沒有試驗" description="跑一批試驗後再看報告。" />
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="list-foot">
-          <span>
-            {rows.length} 次試驗 · {counts.failed} 沒通過 · {counts.blocked} 被攔下 · {counts.na} 無法判斷
-          </span>
-          <span className="hints">
-            <span><Kbd>⌘K</Kbd> 指令</span>
-            <span><Kbd>⌘↵</Kbd> 執行</span>
-            <span><Kbd>ESC</Kbd> 取消</span>
-          </span>
-        </div>
-      </section>
-
-      <aside className="workbench-detail">
-        <div className="detail-head">
-          <span className="detail-title">試驗明細</span>
-          <span className="mono dim">{selected?.id ?? '—'}</span>
-        </div>
-        <div className="detail-body">
+  const exportParams = new URLSearchParams()
+  if (viewRunId) exportParams.set('runId', viewRunId)
+  if (aiReport) exportParams.set('aiBatchId', aiReport.batch.id)
+  const exportQuery = exportParams.size ? `?${exportParams}` : ''
+  const trialDetails = (
+    <div className="trial-detail-content">
           {!selected || !trial ? (
             <EmptyState title="選一條試驗" description="點左側任一行。" />
           ) : (
             <>
               <div>
                 <div className="detail-section-label">案例</div>
-                <div style={{ color: 'var(--ink)', fontSize: 12.5 }}>{selected.caseName}</div>
-                <div className="mono dim" style={{ marginTop: 4 }}>
+                <div className="trial-case-title">{selected.caseName}</div>
+                <div className="trial-case-meta">
                   {selected.branchRole} · {selected.agentName} · 重複 {selected.repeatIndex}/{detail.frozen.repeats}
                 </div>
               </div>
 
+              <div title="不含 AI 評審時間。Oumi 優先使用遠端回傳的起止時間，缺少時採本地量測；失敗時顯示等待耗時。">
+                <div className="detail-section-label">{trial.normalized.status === 'succeeded' ? '回答耗時' : '等待耗時'}</div>
+                <div>{formatAgentTime(selected.latencyMs, trial.normalized.status)}</div>
+              </div>
               <div>
                 <div className="detail-section-label">輸入</div>
                 <div className="detail-box">{trial.normalized.input || '（空）'}</div>
@@ -466,9 +347,148 @@ export function ReportDetailPage({ id, trialId }: { id: string; trialId?: string
               </div>
             </>
           )}
-        </div>
-      </aside>
+
+    </div>
+  )
+  const openTrial = (trialId: string) => { setSelectedId(trialId); setPanel('trial') }
+  const moveTrial = (step: number) => {
+    const next = visible[selectedIndex + step]
+    if (next) openTrial(next.id)
+  }
+  const focusEvidence = (trialId?: string) => {
+    if (trialId) { setFilter('all'); openTrial(trialId); return }
+    setPanel(null)
+    setReportView('details')
+    requestAnimationFrame(() => document.querySelector('.report-page .workbench-list')?.scrollIntoView({ block: 'nearest' }))
+  }
+
+  return (
+    <div className="workbench-page report-page">
+      <div className="workbench-head">
+        <ReportOverview detail={detail} metrics={metrics} runId={viewRunId} conclusion={conclusion} ai={aiReport} state={aiEvaluation}
+          onRunChange={(runId) => void load(runId)} onOpen={setPanel} onEvidence={() => focusEvidence()}
+          onExport={(format) => window.open(`/api/experiments/${id}/export.${format}${exportQuery}`, '_blank', 'noopener')} />
+        {detail.branches.length > 1 && <div className="model-report-tabs" aria-label="報告視圖"><Button size="sm" aria-pressed={reportView === 'comparison'} onClick={() => setReportView('comparison')}>模型／版本對比</Button><Button size="sm" aria-pressed={reportView === 'details'} onClick={() => setReportView('details')}>測試明細</Button></div>}
       </div>
+      {detail.branches.length > 1 && reportView === 'comparison' ? <div className="workbench-body model-report-body"><ModelComparisonView key={viewRunId} detail={detail} batch={aiEvaluation.batch}/></div> : <div className="workbench-body">
+      <section className="workbench-list">
+        <div className="list-head">
+          <div>
+            <span className="list-title">{rows.length} 次試驗</span>
+            <span className="list-sub">
+              {caseCount} 案例 × {branchCount} 分支
+            </span>
+          </div>
+          <Button size="sm" variant="ghost" aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}>篩選{filter !== 'all' ? ' · 已啟用' : ''}</Button>
+        </div>
+
+        {showFilters && (
+          <div className="filter-row">
+            {(
+              [
+                ['all', `全部 ${rows.length}`],
+                ['failed', `失敗 ${counts.failed}`],
+                ['blocked', `攔截 ${counts.blocked}`],
+                ['n/a', `無法判斷 ${counts.na}`],
+                ['passed', `通過 ${counts.passed}`],
+              ] as Array<[typeof filter, string]>
+            ).map(([key, label]) => (
+              <button key={key} type="button" className={`chip ${filter === key ? 'active' : ''}`} onClick={() => setFilter(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="list-body">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>案例</th>
+                <th>分支</th>
+                <th>規則判定</th>
+                <th className="right">規則分數</th>
+                <th className="right" title="回答耗時；失敗時為等待耗時，不含 AI 評審時間">Agent 耗時</th>
+                <th>原因</th>
+                <th>AI 評估</th>
+                <th className="right">開始</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`clickable ${selected?.id === row.id ? 'selected' : ''}`}
+                  onClick={() => openTrial(row.id)}
+                >
+                  <td><button type="button" className="report-trial-open" onClick={(event) => { event.stopPropagation(); openTrial(row.id) }} aria-haspopup="dialog">{row.caseName}</button></td>
+                  <td className="mono">{row.branchRole}</td>
+                  <td>
+                    <Badge tone={STATUS_TEXT[row.status].tone}>{STATUS_TEXT[row.status].text}</Badge>
+                  </td>
+                  <td className="right mono">{row.scoreText}</td>
+                  <td className="right mono" style={{ whiteSpace: 'nowrap' }}>{formatAgentTime(row.latencyMs, row.executionStatus)}</td>
+                  <td className="mono dim" title={row.categoryCode ?? undefined}>
+                    {row.category}
+                  </td>
+                  <td className="sm">{(() => {
+                    const evaluation = aiEvaluation.batch?.evaluations.find((item) => item.trialId === row.id)
+                    return evaluation?.result ? ANSWER_VERDICTS[evaluation.result.verdict] : evaluation?.status === 'running' ? '評估中' : evaluation?.status === 'pending' ? '等待中' : evaluation?.status === 'skipped' ? '未送評' : evaluation ? '未完成評估' : '未評估'
+                  })()}</td>
+                  <td className="right mono dim">{row.startedAt.slice(11, 19)}</td>
+                </tr>
+              ))}
+              {visible.length === 0 && (
+                <tr>
+                  <td colSpan={8}>
+                    <EmptyState title="還沒有試驗" description="跑一批試驗後再看報告。" />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="list-foot">
+          <span>
+            {rows.length} 次試驗 · {counts.failed} 沒通過 · {counts.blocked} 被攔下 · {counts.na} 無法判斷
+          </span>
+          <span className="hints">
+            <span><Kbd>⌘K</Kbd> 指令</span>
+            <span><Kbd>⌘↵</Kbd> 執行</span>
+            <span><Kbd>ESC</Kbd> 取消</span>
+          </span>
+        </div>
+      </section>
+
+
+      </div>}
+      {panel && <Drawer
+        className={panel === 'trial' ? 'report-trial-drawer' : ''}
+        title={panel === 'trial' ? '試驗明細' : panel === 'ai' ? 'AI 評估詳情與歷史' : panel === 'quality' ? 'AI 回答差距與改善重點' : '規則判定與分組比較'}
+        onClose={() => setPanel(null)}
+        footer={panel === 'trial' ? <div className="report-trial-navigation">
+          <span>{selectedIndex + 1} / {visible.length} 次試驗</span>
+          <Button size="sm" disabled={selectedIndex <= 0} onClick={() => moveTrial(-1)}>上一條</Button>
+          <Button size="sm" disabled={selectedIndex >= visible.length - 1} onClick={() => moveTrial(1)}>下一條</Button>
+        </div> : undefined}
+      >
+        {panel === 'trial' && <><p className="trial-detail-id">{selected?.id ?? '—'}</p>{trialDetails}</>}
+        {panel === 'ai' && <><AnswerEvaluationPanel state={aiEvaluation} detail={detail} runId={viewRunId} />{aiReport && <Button onClick={() => setPanel('quality')}>查看回答差距與改善建議</Button>}</>}
+        {panel === 'quality' && (aiReport ? <>
+          <p className="sm muted">依所選 AI 批次列出前 5 條有差距或需確認的回答；點選後在測試明細查看原文證據。</p>
+          {aiReport.batch.evaluations.filter((item) => item.status === 'completed' && item.result && item.result.verdict !== 'meets').slice(0, 5).map((item) => <article className="report-insight" key={item.id}>
+            <div className="spread"><strong>{item.caseName}</strong><Button size="sm" onClick={() => focusEvidence(item.trialId)}>查看原文證據</Button></div>
+            <p>{item.result!.summary}</p>{item.result!.suggestions.length > 0 && <ul className="sm muted">{item.result!.suggestions.map((suggestion, index) => <li key={index}>{suggestion}</li>)}</ul>}
+          </article>)}
+          {!aiReport.batch.evaluations.some((item) => item.status === 'completed' && item.result && item.result.verdict !== 'meets') && <p className="sm muted">目前沒有已取得的差距分析；未完成或失敗的評估仍需另行確認。</p>}
+        </> : <p>尚未取得 AI 評估結果。</p>)}
+        {panel === 'rules' && <>
+          {conclusion && <><p>{conclusion.headline}</p><p className="sm muted">{conclusion.sampleText}</p><p className="sm muted">{conclusion.deltaText}</p></>}
+          <Notice>規則判定使用用例口徑；AI 回答品質使用可判定回答口徑。無法判斷不等於 Agent 回答失敗。</Notice>
+          {metrics && metrics.branches.length >= 2 && <><h3>各組規則對比</h3>{metrics.run?.source === 'legacy' && <Notice tone="warn">歷史批次：數字可能不完整</Notice>}<MetricCompare metrics={metrics} repeats={detail.frozen.repeats} /></>}
+        </>}
+      </Drawer>}
     </div>
   )
 }

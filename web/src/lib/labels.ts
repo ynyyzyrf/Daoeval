@@ -51,5 +51,6 @@ export function experimentKindLabel(kind: string): string {
 }
 
 export function roleLabel(role: string): string {
+  if (/^candidate_\d+$/.test(role)) return `對比組 ${role.split('_')[1]}`
   return ROLE_LABELS[role] ?? role
 }

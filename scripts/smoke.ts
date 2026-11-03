@@ -831,8 +831,8 @@ if (okGate.ok) {
   )
   const html = renderReportHtml(report!)
   check(
-    'HTML 導出件是結論先行的三段式（結論句、三個數字、可重現資訊）',
-    ['通過率', '樣本量與可信度', '與上一版比', '可重現資訊', '這些用例沒通過'].every((s) => html.includes(s)),
+    'HTML 導出件使用正式評測報告模板（摘要、方法、結果、證據與附錄）',
+    ['AI Agent 評測報告', '報告編號', '評測摘要', '評測範圍與方法', '各項能力表現', '問題案例與證據', '用例執行明細', '版本與可重現資訊'].every((s) => html.includes(s)),
   )
   // 定位文件要求使用者可見位置不得出現這些技術詞，導出件同樣適用
   const banned = ['N/A', 'assertion', 'provider', 'trace', 'run_task', 'JSON schema']

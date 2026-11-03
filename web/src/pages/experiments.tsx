@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import './experiments.css'
 import { NA_REASON_LABELS, type NaReasonCode } from '../../../src/shared/types.ts'
 import {
   api,
@@ -27,7 +28,7 @@ import {
   SkeletonBlock,
   useToast,
 } from '../components/ui.tsx'
-import { formatDateTime, formatMs, formatPct, statusText } from '../lib/format.ts'
+import { formatAgentTime, formatDateTime, formatMs, formatPct, statusText } from '../lib/format.ts'
 import { experimentKindLabel, roleLabel } from '../lib/labels.ts'
 import { MetricCompare } from '../components/MetricCompare.tsx'
 import { RunSwitcher } from '../components/RunSwitcher.tsx'
@@ -62,14 +63,16 @@ export function ExperimentsListPage() {
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [compare, setCompare] = useState(false)
+  const [modelCompare, setModelCompare] = useState(false)
+  const [candidates, setCandidates] = useState<string[]>([''])
+  const [advanced, setAdvanced] = useState(false)
   const [form, setForm] = useState({
     name: '',
-    kind: 'A' as 'A' | 'B',
     datasetVersionId: '',
     scoringProfileVersionId: '',
     repeats: 1,
     baseline: '',
-    experiment: '',
   })
   const toast = useToast()
 
@@ -96,31 +99,43 @@ export function ExperimentsListPage() {
   }, [])
 
   const agentVersionOptions = agents.flatMap((agent) =>
-    agent.versions.map((v) => ({ id: v.id, label: `${agent.name} · v${v.versionNo}` })),
+    agent.versions.filter((v) => v.status === 'active').map((v) => ({ id: v.id, agentId: agent.id, label: `${agent.name} · ${v.versionName || v.model || '未命名'} · v${v.versionNo}` })),
   )
 
+  const selectedDataset = datasets.find((d) => d.id === form.datasetVersionId)
+  const selectedBaseline = agentVersionOptions.find((v) => v.id === form.baseline)
+  const selectedCandidates = candidates.map(id => agentVersionOptions.find(v => v.id === id))
+  const groupCount = compare ? candidates.length + 1 : 1
+  const suggestedName = selectedDataset && selectedBaseline
+    ? `${selectedDataset.testSetName}｜${modelCompare && compare ? '模型對比' : compare ? '對比測試' : '單組測試'}` : ''
+  const canCreate = Boolean(form.datasetVersionId && form.scoringProfileVersionId && form.baseline
+    && (!compare || (candidates.length > 0 && candidates.every(id => id && id !== form.baseline) && new Set(candidates).size === candidates.length
+      && (!modelCompare || selectedCandidates.every(v => v?.agentId === selectedBaseline?.agentId))))
+    && Number.isInteger(form.repeats) && form.repeats >= 1)
+
   const create = async () => {
-    if (!form.name.trim() || !form.datasetVersionId || !form.scoringProfileVersionId || !form.baseline) {
-      toast.push('error', '請填寫名稱並選擇測試集版本、評分規則集與 Baseline Agent 版本')
+    if (!canCreate) {
+      toast.push('error', '請選擇題目、評分規則與測試對象；對比測試需要兩個不同的版本')
       return
     }
     setBusy(true)
     try {
       const branches = [{ role: 'baseline', agentVersionId: form.baseline }]
-      if (form.experiment) branches.push({ role: 'experiment', agentVersionId: form.experiment })
+      if (compare) candidates.forEach((id, index) => branches.push({ role: index === 0 ? 'experiment' : `candidate_${index + 1}`, agentVersionId: id }))
       const result = await api.createExperiment({
-        name: form.name.trim(),
-        kind: form.kind,
+        name: form.name.trim() || suggestedName,
+        kind: compare && selectedCandidates.some(v => v?.agentId !== selectedBaseline?.agentId) ? 'B' : 'A',
+        externalConditions: { comparisonMode: compare && modelCompare ? 'models' : compare ? 'versions' : 'single' },
         datasetVersionId: form.datasetVersionId,
         scoringProfileVersionId: form.scoringProfileVersionId,
         repeats: form.repeats,
         branches,
       })
-      toast.push('success', '實驗已建立，四元組已凍結')
+      toast.push('success', '實驗已建立，設定已保存；可在下一頁開始執行')
       navigate(`/experiments/${result.experimentId}`)
     } catch (e) {
       const payload = (e as { payload?: { missing?: string[] } }).payload
-      toast.push('error', payload?.missing?.length ? `四元組不完整：${payload.missing.join('、')}` : (e as Error).message)
+      toast.push('error', payload?.missing?.length ? `請補齊設定：${payload.missing.join('、')}` : (e as Error).message)
     } finally {
       setBusy(false)
     }
@@ -150,7 +165,7 @@ export function ExperimentsListPage() {
   return (
     <div className="stack page-stack">
       <div className="page-head">
-        <PageTitle lead="實驗" sub="凍結四元組、批量執行、查看各分支指標。" />
+        <PageTitle lead="實驗" sub="使用同一批題目測試 Agent，或比較兩個版本的表現。" />
         <div className="page-actions">
           <Button variant="primary" onClick={() => setCreating(true)}>
             新建實驗
@@ -194,74 +209,89 @@ export function ExperimentsListPage() {
           footer={
             <>
               <Button onClick={() => setCreating(false)}>取消</Button>
-              <Button variant="primary" loading={busy} loadingLabel="建立中…" onClick={() => void create()}>
-                建立並凍結
+              <Button variant="primary" loading={busy} loadingLabel="建立中…" disabled={!canCreate} onClick={() => void create()}>
+                建立實驗，下一步執行
               </Button>
             </>
           }
         >
-          <Field label="實驗名稱">
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
-          </Field>
-          <div className="grid-2">
-            <Field label="對比類型">
-              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as 'A' | 'B' })}>
-                <option value="A">A 類：同 Agent 不同版本</option>
-                <option value="B">B 類：不同 Agent 橫向對比</option>
-              </select>
-            </Field>
-            <Field label="重複次數 N">
-              <input
-                type="number"
-                min={1}
-                value={form.repeats}
-                onChange={(e) => setForm({ ...form, repeats: Math.max(1, Number(e.target.value)) })}
-              />
-            </Field>
+          <div className="experiment-setup">
+            <p className="muted sm">先選題目與測試對象。建立後再開始執行，這一步不會調用 Agent。</p>
+            <section className="experiment-setup-section" aria-labelledby="setup-dataset">
+              <h3 id="setup-dataset">1. 用哪些題目測試？</h3>
+              <Field label="測試集" hint="選擇已發布的版本；所有對比組會使用同一批題目。">
+                <select value={form.datasetVersionId} onChange={(e) => {
+                  const dataset = datasets.find((d) => d.id === e.target.value)
+                  setAdvanced(!scoring.some((s) => s.id === dataset?.scoringProfileVersionId && s.status === 'active'))
+                  setForm({ ...form, datasetVersionId: e.target.value,
+                    scoringProfileVersionId: scoring.some((s) => s.id === dataset?.scoringProfileVersionId && s.status === 'active')
+                      ? dataset!.scoringProfileVersionId : '' })
+                }}>
+                  <option value="">請選擇測試集</option>
+                  {datasets.filter((d) => d.status === 'active').map((d) => (
+                    <option key={d.id} value={d.id}>{d.testSetName} · {d.caseCount} 題 · v{d.versionNo}</option>
+                  ))}
+                </select>
+              </Field>
+              {!datasets.some((d) => d.status === 'active') && <p className="sm">還沒有可用題目，請先到 <a href="/testsets">測試集</a> 建立並發布版本。</p>}
+              {form.datasetVersionId && !form.scoringProfileVersionId && <Notice tone="warn">這份測試集沒有可用的預設評分規則，請在下方「評分與執行設定」中選擇。</Notice>}
+            </section>
+            <section className="experiment-setup-section" aria-labelledby="setup-target">
+              <h3 id="setup-target">2. 要測試誰？</h3>
+              <Field label="測試方式">
+                <select value={compare ? modelCompare ? 'models' : 'compare' : 'single'} onChange={(e) => { setCompare(e.target.value !== 'single'); setModelCompare(e.target.value === 'models') }}>
+                  <option value="single">測試一個版本：先了解目前表現</option>
+                  <option value="compare">比較多個版本：查看改版是否改善</option>
+                  <option value="models">模型對比：同一 Agent，只換模型</option>
+                </select>
+              </Field>
+              <Field label={compare ? '目前版本（基準組）' : '要測試的 Agent 版本'} hint={compare ? '選擇目前使用的版本，作為比較基準。' : '使用這個版本回答測試集中的問題。'}>
+                <select value={form.baseline} onChange={(e) => setForm({ ...form, baseline: e.target.value })}>
+                  <option value="">請選擇 Agent 版本</option>
+                  {agentVersionOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </select>
+              </Field>
+              {compare && <>
+                {candidates.map((value, index) => <div key={index}>
+                  <Field label={`對比版本 ${index + 1}`} hint={modelCompare ? '選同一 Agent 的另一個模型版本；其他配置需一致。' : '可比較同一個或不同 Agent 的版本。'}>
+                    <select value={value} onChange={e => setCandidates(candidates.map((id,i) => i === index ? e.target.value : id))}>
+                      <option value="">請選擇要比較的版本</option>
+                      {agentVersionOptions.filter(o => o.id !== form.baseline && (!modelCompare || o.agentId === selectedBaseline?.agentId) && (!candidates.includes(o.id) || o.id === value)).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  </Field>
+                  {candidates.length > 1 && <Button size="sm" variant="ghost" onClick={() => setCandidates(candidates.filter((_,i) => i !== index))}>移除對比版本 {index + 1}</Button>}
+                </div>)}
+                <Button size="sm" disabled={candidates.length >= 7} onClick={() => setCandidates([...candidates, ''])}>＋ 加入另一個模型／版本</Button>
+                <Notice>先在 Agent 接入設定或遠端平台配置各版本；此處不會改寫遠端 Prompt 或模型。模型對比會檢查同一 Agent、模型路由不同且其他本地配置一致。</Notice>
+              </>}
+              {!agentVersionOptions.length && <p className="sm">還沒有可用版本，請先到 <a href="/agents">Agent 接入</a> 完成配置並發布版本。</p>}
+            </section>
+            <section className="experiment-setup-section" aria-labelledby="setup-confirm">
+              <h3 id="setup-confirm">3. 確認這次測試</h3>
+              <Field label="實驗名稱（可選）" hint="不填會按測試集與測試方式自動命名。">
+                <input value={form.name} placeholder={suggestedName || '例如：蘑菇教授 Prompt 改版對比'} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </Field>
+              <details open={advanced} onToggle={(e) => setAdvanced(e.currentTarget.open)}>
+                <summary>評分與執行設定</summary>
+                <div className="experiment-advanced">
+                  <Field label="評分規則" hint="預設使用測試集綁定的規則；所有組共用同一份標準。AI 回答評估可在執行後另外發起。">
+                    <select value={form.scoringProfileVersionId} onChange={(e) => setForm({ ...form, scoringProfileVersionId: e.target.value })}>
+                      <option value="">請選擇評分規則</option>
+                      {scoring.filter((s) => s.status === 'active').map((s) => <option key={s.id} value={s.id}>{s.profileName} · v{s.versionNo}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="每題執行次數" hint="預設 1 次；增加次數可觀察回答穩定性，也會增加調用量。">
+                    <input type="number" min={1} step={1} value={form.repeats} onChange={(e) => setForm({ ...form, repeats: Number(e.target.value) })} />
+                  </Field>
+                </div>
+              </details>
+              <div className="experiment-setup-summary" aria-live="polite">
+                <strong>{selectedDataset ? `${selectedDataset.caseCount} 題` : '尚未選擇題目'} · {compare ? `${groupCount} 組對比` : '1 組測試'} · 每題 {form.repeats || 0} 次</strong>
+                <span className="sm muted">{selectedDataset && Number.isInteger(form.repeats) && form.repeats >= 1 ? `預計 ${selectedDataset.caseCount * groupCount * form.repeats} 次 Agent 調用，另計 AI 評估。` : '完成選擇後會顯示預計調用量。'}</span>
+                <span className="sm muted">評分：{scoring.find((s) => s.id === form.scoringProfileVersionId)?.profileName ?? '尚未選擇'}</span>
+              </div>
+            </section>
           </div>
-          <Field label="測試集版本">
-            <select value={form.datasetVersionId} onChange={(e) => setForm({ ...form, datasetVersionId: e.target.value })}>
-              <option value="">請選擇</option>
-              {datasets.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.testSetName} v{d.versionNo} · {d.caseCount} 條
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="評分規則集版本">
-            <select
-              value={form.scoringProfileVersionId}
-              onChange={(e) => setForm({ ...form, scoringProfileVersionId: e.target.value })}
-            >
-              <option value="">請選擇</option>
-              {scoring.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.profileName} v{s.versionNo}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Baseline Agent 版本">
-            <select value={form.baseline} onChange={(e) => setForm({ ...form, baseline: e.target.value })}>
-              <option value="">請選擇</option>
-              {agentVersionOptions.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Experiment Agent 版本" hint="留空表示單分支">
-            <select value={form.experiment} onChange={(e) => setForm({ ...form, experiment: e.target.value })}>
-              <option value="">單分支</option>
-              {agentVersionOptions.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
         </Drawer>
       )}
     </div>
@@ -392,6 +422,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
   const scoringVersion = scoringVersions.find((version) => version.id === detail.frozen.scoring.versionId)
 
   const start = async () => {
+    if (detail?.frozen.externalConditions.composition === 'reuse') { toast.push('error', '這份報告由來源批次彙整，不需重新調用模型'); return }
     const epoch = pageEpochRef.current
     loadSequenceRef.current += 1
     setStarting(true)
@@ -459,7 +490,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
           <dd>
             {detail.frozen.branches.map((branch) => (
               <div key={branch.agentVersionId} className="row-tight">
-                <span title={branch.agentVersionId}>{branch.config.name} v{branch.agentVersionNo}（{roleLabel(branch.role)}）</span>
+                <span title={branch.agentVersionId}>{branch.config.name} · {branch.versionName || branch.config.versionInfo.model || '未命名'} · v{branch.agentVersionNo}（{roleLabel(branch.role)}）</span>
               </div>
             ))}
           </dd>
@@ -470,6 +501,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
         </dl>
       </Card>
 
+      {detail.frozen.externalConditions.composition === 'reuse' && <Notice>{detail.frozen.externalConditions.sourceDescription} 此頁等待來源完成後彙整，不會自動重跑四組。</Notice>}
       <Card
         title="跑批控制"
         actions={
@@ -499,7 +531,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
               />
             </label>
             {!running && run?.status !== 'interrupted' && (
-              <Button variant="primary" loading={starting} loadingLabel="啟動中…" onClick={() => void start()}>
+              <Button variant="primary" disabled={detail.frozen.externalConditions.composition === 'reuse'} loading={starting} loadingLabel="啟動中…" onClick={() => void start()}>
                 開始批量
               </Button>
             )}
@@ -615,7 +647,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
                       </td>
                     </tr>
                     <tr>
-                      <td className="metric-label">耗時</td>
+                      <td className="metric-label" title="統計已發送的調用，包含失敗與超時等待；不含 AI 評審">調用耗時（含失敗等待）</td>
                       <td className="right numeric">平均 {formatMs(branch.metrics.efficiency.avgLatencyMs)}</td>
                       <td className="muted sm">P95 {formatMs(branch.metrics.efficiency.p95LatencyMs)}</td>
                     </tr>
@@ -645,7 +677,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
                 <th>分支</th>
                 <th>狀態</th>
                 <th>評分</th>
-                <th className="right">耗時</th>
+                <th className="right" title="失敗時為等待耗時，不含 AI 評審">Agent 耗時</th>
                 <th>時間</th>
               </tr>
             </thead>
@@ -675,7 +707,7 @@ export function ExperimentDetailPage({ id }: { id: string }) {
                         <span className="muted">—</span>
                       )}
                     </td>
-                    <td className="right">{formatMs(trial.latencyMs)}</td>
+                    <td className="right">{formatAgentTime(trial.latencyMs, trial.status)}</td>
                     <td className="muted sm">{formatDateTime(trial.createdAt)}</td>
                   </tr>
                 )

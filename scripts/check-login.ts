@@ -11,7 +11,7 @@ process.env.AEVAL_API_KEY = 'login-test-external-api-key'
 const { migrate, db } = await import('../src/server/db.ts')
 const { buildApp } = await import('../src/server/app.ts')
 migrate()
-const app = await buildApp()
+let app = await buildApp()
 try {
   for (const url of ['/api/agents', '/api/test-sets', '/api/experiments', '/api/audit', '/api/test-sets/template.xlsx']) {
     assert.equal((await app.inject(url)).statusCode, 401, url)
@@ -29,6 +29,8 @@ try {
   assert.ok(cookie.httpOnly)
   assert.equal(cookie.sameSite, 'Strict')
   assert.equal(cookie.path, '/')
+  assert.equal(Number(cookie.maxAge), 7 * 24 * 60 * 60)
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM web_session WHERE token_hash = ?').get(cookie.value) as { n: number }).n, 0, 'raw session tokens are not stored')
   const headers = { cookie: `${cookie.name}=${cookie.value}` }
   assert.equal((await app.inject({ url: '/api/auth/session', headers })).statusCode, 200)
   assert.equal((await app.inject({ url: '/api/agents', headers })).statusCode, 200)
@@ -43,24 +45,43 @@ try {
   assert.equal((await login('admin', 'admin', '127.0.0.2')).statusCode, 429)
   const fresh = await login('admin', 'admin')
   const freshCookie = fresh.cookies.map((item) => `${item.name}=${item.value}`).join('; ')
+  await app.close()
+  app = await buildApp()
+  assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: freshCookie } })).statusCode, 200, 'sessions survive application restart')
+  const idle = await login('admin', 'admin')
+  const idleCookie = idle.cookies.map((item) => `${item.name}=${item.value}`).join('; ')
   const realNow = Date.now
+  const start = realNow()
   try {
-    Date.now = () => realNow() + 12 * 60 * 60 * 1000 + 1
-    assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: freshCookie } })).statusCode, 401, 'sessions expire after 12 hours')
+    Date.now = () => start + 12 * 60 * 60 * 1000 + 1
+    assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: freshCookie } })).statusCode, 200, 'sessions last beyond the old twelve-hour limit')
+    Date.now = () => start + 2 * 24 * 60 * 60 * 1000
+    const renewed = await app.inject({ url: '/api/agents', headers: { cookie: freshCookie } })
+    assert.equal(renewed.statusCode, 200)
+    assert.equal(Number(renewed.cookies[0]?.maxAge), 7 * 24 * 60 * 60, 'active web API calls renew both cookie and server session')
+    assert.equal((await app.inject({ url: '/api/agents', headers: { cookie: freshCookie } })).cookies.length, 0, 'renewal is throttled')
+    Date.now = () => start + 7 * 24 * 60 * 60 * 1000 + 1
+    assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: idleCookie } })).statusCode, 401, 'seven days without renewal expires')
+    assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: freshCookie } })).statusCode, 200, 'renewed session survives the original expiry')
+    Date.now = () => start + 15 * 24 * 60 * 60 * 1000
+    assert.equal((await app.inject({ url: '/api/auth/session', headers: { cookie: freshCookie } })).statusCode, 401, 'idle renewed sessions still expire')
   } finally { Date.now = realNow }
+  const beforeRotation = await login('admin', 'admin')
+  const previousCookie = beforeRotation.cookies.map((item) => `${item.name}=${item.value}`).join('; ')
 
   process.env.AEVAL_ADMIN_USERNAME = 'operator'
   process.env.AEVAL_ADMIN_PASSWORD = 'custom-test-password'
   process.env.AEVAL_COOKIE_SECURE = 'true'
   const configured = await buildApp()
   try {
+    assert.equal((await configured.inject({ url: '/api/auth/session', headers: { cookie: previousCookie } })).statusCode, 401, 'credential changes revoke persisted sessions')
     assert.equal((await configured.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'admin', password: 'admin' } })).statusCode, 401)
     const result = await configured.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'operator', password: 'custom-test-password' } })
     assert.equal(result.statusCode, 200)
     assert.equal(result.cookies[0]!.secure, true)
     assert.ok(!result.body.includes('custom-test-password'))
   } finally { await configured.close() }
-  console.log('PASS login: defaults, env override, protected web APIs/downloads, HttpOnly session, tamper rejection, logout, rate limit, CSRF, independent API key, public health/share')
+  console.log('PASS login: seven-day lifetime, sliding renewal, persisted restart, credential rotation, hashed-only storage, defaults, env override, protected web APIs/downloads, HttpOnly session, tamper rejection, logout, rate limit, CSRF, independent API key, public health/share')
 } finally {
   await app.close()
   db.close()

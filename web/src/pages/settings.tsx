@@ -13,7 +13,7 @@ export function SettingsPage() {
   return (
     <div className="stack page-stack">
       <div className="page-head">
-        <PageTitle lead="設定" sub="查看系統操作記錄" />
+        <PageTitle lead="操作審計" sub="查看系統操作記錄" />
       </div>
 
       <Card

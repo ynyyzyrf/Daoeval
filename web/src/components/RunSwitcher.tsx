@@ -5,13 +5,14 @@ import { formatDateTime, statusText } from '../lib/format.ts'
 import { Icon } from './ui.tsx'
 import './RunSwitcher.css'
 
-const sourceLabel = (run: RunSummary) => run.source === 'live' ? '批量執行' : run.source === 'legacy' ? '歷史批次' : '手動試跑'
+const sourceLabel = (run: RunSummary) => run.source === 'live' ? '批量執行' : run.source === 'legacy' ? '歷史批次' : run.source === 'composed' ? '來源結果彙整' : '手動試跑'
 const stateLabel = (run: RunSummary) => run.status === 'completed' && run.failed > 0 ? '已完成 · 有失敗' : statusText(run.status)
 
-export function RunSwitcher({ runs, value, onChange }: {
+export function RunSwitcher({ runs, value, onChange, compact = false }: {
   runs: RunSummary[]
   value: string | null
   onChange: (id: string) => void
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0, width: 360, maxHeight: 360 })
@@ -92,7 +93,7 @@ export function RunSwitcher({ runs, value, onChange }: {
   }
 
   return (
-    <div className="run-switcher">
+    <div className={`run-switcher${compact ? ' is-compact' : ''}`}>
       <button
         ref={triggerRef}
         type="button"

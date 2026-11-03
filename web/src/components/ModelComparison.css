@@ -1,0 +1,25 @@
+.model-comparison { padding: 16px; display: grid; gap: 16px; min-width: 0; }
+.model-comparison h2, .model-comparison h3, .model-comparison p { margin: 0; }
+.model-comparison-heading { display: flex; justify-content: space-between; gap: 12px; }
+.model-comparison-heading h2 { font-size: 16px; margin-bottom: 6px; }
+.model-comparison-scroll { overflow-x: auto; min-width: 0; }
+.model-comparison table { min-width: 720px; }
+.model-comparison td, .model-comparison th { min-width: 180px; vertical-align: top; }
+.model-comparison td > span, .model-comparison th > span { display: block; margin-top: 4px; }
+.model-comparison-filters { display: flex; gap: 12px; flex-wrap: wrap; }
+.model-comparison-filters input { flex: 1; min-width: 180px; }
+.model-comparison-filters select { width: auto; }
+.model-answer-drawer.drawer { width: min(1200px, calc(100vw - 32px)); max-width: none; }
+.model-answers { display: flex; gap: 16px; overflow-x: auto; align-items: flex-start; margin-top: 16px; }
+.model-answer { flex: 1; min-width: 280px; border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-wrap: anywhere; }
+.model-answer h3 { font-size: 16px; margin: 0; }
+.model-answer .detail-box { font: inherit; white-space: pre-wrap; line-height: 1.8; }
+.model-answer blockquote { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--border); }
+.model-report-tabs { display: flex; gap: 8px; }
+.model-report-tabs button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.model-report-body { display: block !important; overflow-y: auto; min-height: 0; }
+@media (max-width: 600px) {
+  .model-answer-drawer.drawer { width: 100vw; border-radius: 0; }
+  .model-answers { display: grid; }
+  .model-answer { min-width: 0; }
+}

@@ -31,7 +31,7 @@ export const api = {
   activateJudgeModel: (id: string) => request<JudgeSettings>(`/api/ai-judge/models/${encodeURIComponent(id)}/activate`, { method: 'POST' }),
   testJudge: (profileId?: string) => request<{ ok: true }>('/api/ai-judge/test', { method: 'POST', body: JSON.stringify({ profileId }) }),
   answerEvaluations: (experimentId: string, runId: string) => request<AnswerEvaluationBatch[]>(`/api/experiments/${experimentId}/answer-evaluations?runId=${encodeURIComponent(runId)}`),
-  startAnswerEvaluation: (experimentId: string, runId: string) => request<{ batchId: string }>(`/api/experiments/${experimentId}/answer-evaluations`, { method: 'POST', body: JSON.stringify({ runId }) }),
+  startAnswerEvaluation: (experimentId: string, runId: string, retryBatchId?: string) => request<{ batchId: string }>(`/api/experiments/${experimentId}/answer-evaluations`, { method: 'POST', body: JSON.stringify({ runId, retryBatchId }) }),
   meta: () =>
     request<{
       keySource: string
@@ -72,6 +72,8 @@ export const api = {
     ),
   agentVersions: (id: string) =>
     request<{ versions: AgentVersion[]; credentialMask: string | null }>(`/api/agents/${id}/versions`),
+  renameVersion: (agentId: string, versionId: string, versionName: string) =>
+    request<{ versionName: string }>(`/api/agents/${agentId}/versions/${versionId}/name`, { method: 'PATCH', body: JSON.stringify({ versionName }) }),
   disableVersion: (agentId: string, versionId: string) =>
     request<{ ok: boolean }>(`/api/agents/${agentId}/versions/${versionId}/disable`, { method: 'POST' }),
 
@@ -113,6 +115,7 @@ export const api = {
     scoringProfileVersionId: string
     repeats: number
     branches: Array<{ role: string; agentVersionId: string }>
+    externalConditions?: Record<string, string>
   }) =>
     request<{ ok: true; experimentId: string }>('/api/experiments', {
       method: 'POST',
@@ -158,6 +161,8 @@ export interface AgentSummary {
   versions: Array<{
     id: string
     versionNo: number
+    versionName?: string
+    model?: string | null
     status: string
     createdAt: string
     validation: ValidationResult | null
@@ -238,6 +243,7 @@ export interface Overview {
 export interface AgentVersion {
   id: string
   versionNo: number
+  versionName?: string
   status: string
   createdAt: string
   diff: Array<{ field: string; before: unknown; after: unknown }>
@@ -302,7 +308,7 @@ export interface ExperimentSummary {
 export interface RunState {
   id: string
   experimentId: string
-  source: 'live' | 'legacy' | 'manual'
+  source: 'live' | 'legacy' | 'manual' | 'composed'
   status: 'running' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
   total: number
   done: number
@@ -316,9 +322,10 @@ export interface RunState {
 }
 
 export interface RunSummary {
+  repeats?: number
   id: string
   status: string
-  source: 'live' | 'legacy' | 'manual'
+  source: 'live' | 'legacy' | 'manual' | 'composed'
   startedAt: string
   finishedAt: string | null
   total: number
@@ -417,6 +424,7 @@ export interface ExperimentDetail {
       role: string
       agentVersionId: string
       agentVersionNo: number
+      versionName?: string
       config: AgentConfig
       variables: Record<string, string>
     }>

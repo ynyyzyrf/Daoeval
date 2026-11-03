@@ -10,7 +10,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db, newId, nowIso } from './db.ts'
 import { openSecret, sealSecret } from './crypto.ts'
-import { caseVerdict } from './conclusion.ts'
+import { buildConclusion, caseVerdict } from './conclusion.ts'
 import { getExperiment, pickMetricsRun, writeAudit } from './store.ts'
 import { PROBLEM_OWNER_LABELS, failureText, type ProblemOwner } from '../shared/vocabulary.ts'
 import type { CaseInput } from '../shared/types.ts'
@@ -169,16 +169,13 @@ export function buildShareSnapshot(experimentId: string): ShareSnapshot | null {
     }
 
     const judged = passed + failed
+    const conclusion = buildConclusion({ cases, trials: facts, repeats })
     judgedTotal += judged
     passedTotal += passed
     branches.push({
       name: branchName,
-      headline: judged === 0
-        ? '這批還沒有可判斷的結果'
-        : failed === 0
-          ? `${judged} 條用例全部通過${unknown > 0 ? `（另 ${unknown} 條無法判斷）` : ''}`
-          : `${judged} 條用例通過 ${passed} 條，${failed} 條沒通過${unknown > 0 ? `（另 ${unknown} 條無法判斷）` : ''}`,
-      passRateText: judged === 0 ? '—' : `${((passed / judged) * 100).toFixed(1)}%`,
+      headline: conclusion.headline,
+      passRateText: conclusion.passRateText,
       passedCases: passed,
       judgedCases: judged,
       unknownCases: unknown,
@@ -188,14 +185,14 @@ export function buildShareSnapshot(experimentId: string): ShareSnapshot | null {
   }
 
   const failuresTotal = failures.length
+  const unknownTotal = cases.length * branches.length - judgedTotal
   const evidence = failures.map((failure, index) => ({ ...failure, actual: index < SHARE_MAX_EVIDENCE ? failure.actual : null }))
 
   const headline = (() => {
+    if (branches.length === 1) return branches[0].headline
+    if (unknownTotal > 0) return `${cases.length} 條用例，${branches.length} 份結果合計 ${unknownTotal} 條尚無規則判定；結果不完整，暫不提供整體通過率或上線結論`
     if (judgedTotal === 0) return `這批 ${cases.length} 條用例還沒有可判斷的結果`
     if (failuresTotal === 0) return `${cases.length} 條用例全部通過，可以上線`
-    if (branches.length === 1) {
-      return `${judgedTotal} 條可判斷的用例通過 ${passedTotal} 條（${((passedTotal / judgedTotal) * 100).toFixed(1)}%），有 ${failuresTotal} 條沒通過需要確認`
-    }
     const detail = branches.map((branch) => `${branch.name} 通過 ${branch.passedCases} 條`).join('、')
     return `${cases.length} 條用例，${branches.length} 份結果合計 ${failuresTotal} 條沒通過（${detail}）`
   })()
@@ -206,7 +203,7 @@ export function buildShareSnapshot(experimentId: string): ShareSnapshot | null {
     title: experiment.name,
     kindLabel: KIND_LABELS[experiment.kind] ?? '評測結果',
     headline,
-    passRateText: judgedTotal === 0 ? '—' : `${((passedTotal / judgedTotal) * 100).toFixed(1)}%`,
+    passRateText: judgedTotal === 0 || unknownTotal > 0 ? '—' : `${((passedTotal / judgedTotal) * 100).toFixed(1)}%`,
     sampleText: `${cases.length} 條用例 × ${repeats} 次；共 ${experiment.trials.length} 次試驗`,
     totals: {
       cases: cases.length,

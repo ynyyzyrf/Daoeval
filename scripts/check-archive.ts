@@ -10,10 +10,14 @@ const store = await import('../src/server/store.ts')
 const { buildApp } = await import('../src/server/app.ts')
 migrate()
 const app = await buildApp()
-const json = async (url: string) => (await app.inject({ method: 'GET', url })).json()
-const archive = async (path: string, archived: unknown) => app.inject({ method: 'POST', url: `/api/${path}/archive`, payload: { archived } })
+let headers: Record<string, string> = {}
+const json = async (url: string) => (await app.inject({ method: 'GET', url, headers })).json()
+const archive = async (path: string, archived: unknown) => app.inject({ method: 'POST', url: `/api/${path}/archive`, headers, payload: { archived } })
 
 try {
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: process.env.AEVAL_ADMIN_USERNAME ?? 'admin', password: process.env.AEVAL_ADMIN_PASSWORD ?? 'admin' } })
+  assert.equal(login.statusCode, 200)
+  headers = { cookie: login.cookies.map(item => `${item.name}=${item.value}`).join('; ') }
   const scoringId = store.ensureDefaultScoringProfileVersion()
   const testSetId = store.createTestSet({ name: '歸檔驗證', cases: [{
     name: '只讀攔截', type: 'basic_qa', input: '不可實際送出', expected: '', scoringRubric: '應被只讀保護攔截',
@@ -45,10 +49,10 @@ try {
     assert.equal((await json(`/api/${resource}`)).length, 0)
     assert.equal((await json(`/api/${resource}?view=archived`))[0].id, itemId)
     assert.equal((await json(`/api/${resource}?view=all`))[0].archived, true)
-    assert.equal((await app.inject({ method: 'GET', url: `/api/${resource}/${itemId}` })).statusCode, 200)
+    assert.equal((await app.inject({ method: 'GET', url: `/api/${resource}/${itemId}`, headers })).statusCode, 200)
     assert.equal((await archive(`${resource}/missing`, true)).statusCode, 404)
     assert.equal((await archive(`${resource}/${itemId}`, 'false')).statusCode, 400)
-    assert.equal((await app.inject({ method: 'GET', url: `/api/${resource}?view=oops` })).statusCode, 400)
+    assert.equal((await app.inject({ method: 'GET', url: `/api/${resource}?view=oops`, headers })).statusCode, 400)
   }
   assert.equal(store.listDatasetVersions().length, 0)
   assert.equal(store.getTestSetDetail(testSetId)!.cases.length, 1)

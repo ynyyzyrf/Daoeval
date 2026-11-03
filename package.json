@@ -1,6 +1,6 @@
 {
   "name": "daoeval",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,7 +16,9 @@
     "check:external-api": "tsx scripts/check-external-api.ts",
     "check:login": "tsx scripts/check-login.ts",
     "check:judge-models": "tsx scripts/check-judge-models.ts",
-    "check:model-route": "tsx scripts/check-model-route.ts"
+    "check:model-route": "tsx scripts/check-model-route.ts",
+    "check:model-comparison": "tsx scripts/check-model-comparison.ts",
+    "check:version-names": "tsx scripts/check-version-names.ts"
   },
   "dependencies": {
     "@fastify/static": "^8.0.4",

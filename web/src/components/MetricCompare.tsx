@@ -61,8 +61,9 @@ function delta(base: number | null, experiment: number | null) {
   return <span className={up ? 'delta-up' : 'delta-down'}>{up ? '↑' : '↓'} {points >= 0 ? '+' : ''}{points.toFixed(1)} pt</span>
 }
 
-export function MetricCompare({ metrics }: MetricCompareProps) {
+export function MetricCompare({ metrics, repeats }: MetricCompareProps) {
   if (metrics.branches.length < 2) return null
+  if (metrics.branches.length > 2) return <div className="stack">{metrics.branches.slice(1).map(branch => <section key={branch.branchId}><h4>{roleLabel(metrics.branches[0].role)} vs {roleLabel(branch.role)}</h4><MetricCompare metrics={{...metrics,branches:[metrics.branches[0],branch]}} repeats={repeats}/></section>)}</div>
   const baseline = metrics.branches[0]!
   const experiment = metrics.branches[1]!
   const naSummaries = naReasonSummary([

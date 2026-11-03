@@ -129,7 +129,8 @@ export function buildConclusion({ cases, trials, repeats, previous }: Conclusion
   const failedCases = outcomes.filter((item) => item.verdict === 'failed').length
   const unknownCases = outcomes.filter((item) => item.verdict === 'unknown').length
   const judgedCases = passedCases + failedCases
-  const passRate = judgedCases === 0 ? null : passedCases / judgedCases
+  // An eligible-only ratio is not an overall result when some cases lack judgements.
+  const passRate = judgedCases === 0 || unknownCases > 0 ? null : passedCases / cases.length
 
   const sentTrials = trials.filter((t) => t.status !== 'blocked')
   const succeeded = sentTrials.filter((t) => t.status === 'succeeded').length
@@ -138,7 +139,7 @@ export function buildConclusion({ cases, trials, repeats, previous }: Conclusion
     ? `還沒送出任何一次試驗（每條跑 ${repeats} 次）`
     : `${cases.length} 條用例 × ${repeats} 次 = ${trials.length} 次試驗；單次成功率 95% 區間 ${ci ? `${(ci.low * 100).toFixed(1)}–${(ci.high * 100).toFixed(1)}%` : '—'}`
   const eligibleTrials = sentTrials.filter((t) => t.scorePassed !== null).length
-  const sampleNote = eligibleTrials < sentTrials.length ? `；其中 ${sentTrials.length - eligibleTrials} 次沒有判定依據，未計入通過率` : ''
+  const sampleNote = eligibleTrials < sentTrials.length ? `；其中 ${sentTrials.length - eligibleTrials} 次沒有規則判定依據，整體通過率暫不計算` : ''
 
   let deltaValue: number | null = null
   let regressedCases = 0
@@ -151,7 +152,7 @@ export function buildConclusion({ cases, trials, repeats, previous }: Conclusion
     }
     const previousJudged = [...previous.values()].filter((verdict) => verdict !== 'unknown').length
     const previousPassed = [...previous.values()].filter((verdict) => verdict === 'passed').length
-    if (previousJudged > 0 && judgedCases > 0) {
+    if (previousJudged === cases.length && judgedCases === cases.length && judgedCases > 0) {
       deltaValue = passedCases / judgedCases - previousPassed / previousJudged
     }
   }
@@ -164,6 +165,9 @@ export function buildConclusion({ cases, trials, repeats, previous }: Conclusion
     : '第一次執行，沒有上一版可比較'
 
   const headline = (() => {
+    if (unknownCases > 0) {
+      return `共 ${cases.length} 條用例：${passedCases} 條通過、${failedCases} 條未通過、${unknownCases} 條尚無規則判定；結果不完整，暫不提供整體通過率或上線結論`
+    }
     if (judgedCases === 0) {
       return unknownCases > 0
         ? `這批 ${cases.length} 條用例都沒有跑出可判斷的結果，先確認 ${unknownCases} 條為什麼沒結果`

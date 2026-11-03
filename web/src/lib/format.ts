@@ -20,6 +20,13 @@ export function formatMs(ms: number | null | undefined): string {
   return `${ms} ms`
 }
 
+/** 顯示既有 Agent 耗時；原始數值仍以毫秒保存。 */
+export function formatAgentTime(ms: number | null | undefined, status: string): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms) || status === 'blocked' || status === 'pending' || status === 'running') return '—'
+  const time = `${Number((ms / 1000).toFixed(2))} 秒`
+  return status === 'succeeded' ? time : `${time}（等待）`
+}
+
 /** 百分比一位小數；null 一律顯示 N/A，不寫成 0 或 - */
 export function formatPct(value: number | null | undefined): string {
   if (value === null || value === undefined) return 'N/A'

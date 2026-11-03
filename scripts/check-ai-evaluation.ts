@@ -15,7 +15,7 @@ const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload
 assert.equal(login.statusCode, 200)
 const cookie = login.cookies.map((item) => `${item.name}=${item.value}`).join('; ')
 const waitFor = async (check: () => boolean) => {
-  for (let index = 0; index < 100; index += 1) { if (check()) return; await new Promise((resolve) => setTimeout(resolve, 10)) }
+  for (let index = 0; index < 500; index += 1) { if (check()) return; await new Promise((resolve) => setTimeout(resolve, 10)) }
   throw new Error('test timeout')
 }
 const input = { question: '休息要求？', reference: '需要兩次休息。', actual: '應安排兩段休息時間。', rubric: '次數需一致，允許同義表述' }
@@ -68,6 +68,8 @@ try {
     db.prepare('UPDATE trial SET status=?, normalized=? WHERE id=?').run(status, JSON.stringify({ ...trial.normalized, status, finalOutput: input.actual }), trial.id)
   }
   const before = store.getExperiment(exp.experimentId, run.id)!
+  const { buildReport, renderReportHtml } = await import('../src/server/report.ts')
+  assert.equal(buildReport(exp.experimentId, run.id)!.aiEvaluation, null, 'No AI history keeps rule-only reports')
   let calls = 0
   let active = 0
   let maxActive = 0
@@ -104,6 +106,80 @@ try {
   const history = ai.listAnswerEvaluations(exp.experimentId, run.id)
   assert.equal(history.length, 2)
   assert.deepEqual(history.find((item) => item.id === batchId), batch, '重評保留原結果')
+  let retryCalls = 0
+  const retriedId = ai.startAnswerEvaluation(exp.experimentId, run.id, async (url, options) => {
+    retryCalls++
+    return retryCalls === 1 ? new Response('', { status: 503 }) : mockFetch(url, options)
+  })
+  await waitFor(() => ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === retriedId)?.status === 'completed')
+  const retried = ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === retriedId)!
+  assert.equal(retryCalls, 3)
+  assert.deepEqual(retried.evaluations.filter((item) => item.status === 'completed').map((item) => item.attempts), [2, 1], 'Worker persists attempts per evaluation')
+  assert.ok(retried.evaluations.filter((item) => item.status === 'skipped').every((item) => item.attempts === 0))
+  const selectedReport = buildReport(exp.experimentId, run.id, batchId)!
+  assert.equal(selectedReport.aiEvaluation!.batch.id, batchId, 'Export preserves the selected historical AI batch')
+  assert.equal(buildReport(exp.experimentId, run.id)!.aiEvaluation!.batch.id, retriedId, 'Default export selects latest AI batch')
+  assert.equal(buildReport(exp.experimentId, run.id, secondId)!.aiEvaluation!.failed, 1)
+  assert.equal(buildReport(exp.experimentId, 'wrong-run', batchId), null)
+  assert.equal(buildReport(exp.experimentId, run.id, 'other-batch'), null, 'Never fall back to another AI batch on an invalid selection')
+  const reportHtml = renderReportHtml(selectedReport)
+  assert.ok(reportHtml.includes('AI 回答評估與差距分析'))
+  assert.ok(reportHtml.includes(batchId) && reportHtml.includes(input.actual) && reportHtml.includes(input.reference))
+  assert.ok(reportHtml.includes(good.summary) && reportHtml.includes(good.differences[0].explanation))
+  const rawExport = await app.inject({ headers: { cookie }, method: 'GET', url: `/api/experiments/${exp.experimentId}/export.json?runId=${run.id}&aiBatchId=${batchId}` })
+  assert.equal(rawExport.statusCode, 200)
+  assert.equal(rawExport.json().aiEvaluation.batch.id, batchId)
+  assert.equal((await app.inject({ headers: { cookie }, method: 'GET', url: `/api/experiments/${exp.experimentId}/export.html?runId=${run.id}&aiBatchId=other-batch` })).statusCode, 404)
+  selectedReport.aiEvaluation!.batch.evaluations.find((item) => item.result)!.result!.summary = '<script>bad()</script>'
+  assert.ok(!renderReportHtml(selectedReport).includes('<script>bad()</script>'), 'Model content is escaped in HTML exports')
+  // A failed-only retry must inherit successful results without sending them again.
+  const retrySourceId = 'retry-source-fixture'
+  db.prepare(`INSERT INTO ai_evaluation_batch (id,experiment_id,run_id,status,model,prompt_version,created_at,finished_at,provider_name,api_endpoint)
+    SELECT ?,experiment_id,run_id,status,model,prompt_version,created_at,finished_at,provider_name,api_endpoint FROM ai_evaluation_batch WHERE id=?`).run(retrySourceId, batchId)
+  db.prepare(`INSERT INTO ai_evaluation (id,batch_id,trial_id,case_name,status,input,result,error,attempts)
+    SELECT 'retry-source-' || id,?,trial_id,case_name,status,input,result,error,attempts FROM ai_evaluation WHERE batch_id=?`).run(retrySourceId, batchId)
+  const sourceFailure = db.prepare("SELECT id FROM ai_evaluation WHERE batch_id=? AND status='completed' LIMIT 1").get(retrySourceId) as { id: string }
+  db.prepare("UPDATE ai_evaluation SET status='failed',result=NULL,error='[truncated_response] previous output truncated' WHERE id=?").run(sourceFailure.id)
+  const sourceSnapshot = ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === retrySourceId)!
+  ai.activateJudgeProfile(switched.profiles.find((item) => item.name === 'Other provider')!.id)
+  let onlyFailedCalls = 0
+  let releaseRetry!: () => void
+  const retryGate = new Promise<void>((resolve) => { releaseRetry = resolve })
+  const onlyFailed: typeof fetch = async (url, options) => {
+    onlyFailedCalls++
+    assert.equal(JSON.parse(options!.body as string).max_tokens, 8192, 'Known truncation starts with expanded budget')
+    await retryGate
+    return mockFetch(url, options)
+  }
+  const supplementId = ai.retryFailedAnswerEvaluation(exp.experimentId, run.id, retrySourceId, onlyFailed)
+  assert.equal(ai.retryFailedAnswerEvaluation(exp.experimentId, run.id, retrySourceId, onlyFailed), supplementId, 'Repeated clicks cannot duplicate an active supplement')
+  releaseRetry()
+  await waitFor(() => ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === supplementId)?.status === 'completed')
+  const supplement = ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === supplementId)!
+  assert.equal(onlyFailedCalls, 1)
+  assert.equal(supplement.sourceBatchId, retrySourceId)
+  assert.equal(supplement.evaluations.filter((item) => item.inherited).length, 1)
+  assert.equal(supplement.evaluations.filter((item) => item.status === 'completed').length, 2)
+  assert.equal(supplement.evaluations.filter((item) => item.status === 'skipped').length, 2)
+  assert.deepEqual(ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === retrySourceId), sourceSnapshot, 'Source batch remains immutable')
+  assert.notEqual(ai.getJudgeSettings().activeProfileId, originalProfileId, 'Supplement does not change the active model')
+  const supplementReport = buildReport(exp.experimentId, run.id, supplementId)!
+  assert.equal(supplementReport.aiEvaluation!.inherited, 1)
+  assert.ok(renderReportHtml(supplementReport).includes('沿用來源結果'))
+  assert.throws(() => ai.retryFailedAnswerEvaluation(exp.experimentId, 'wrong-run', retrySourceId, onlyFailed), /找不到/)
+  const savedFetch = globalThis.fetch
+  try {
+    globalThis.fetch = onlyFailed
+    const apiSupplement = await app.inject({ headers: { cookie }, method: 'POST', url: `/api/experiments/${exp.experimentId}/answer-evaluations`, payload: { runId: run.id, retryBatchId: retrySourceId } })
+    assert.equal(apiSupplement.statusCode, 202, apiSupplement.body)
+    const apiSupplementId = apiSupplement.json().batchId
+    await waitFor(() => ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === apiSupplementId)?.status === 'completed')
+    assert.equal(ai.listAnswerEvaluations(exp.experimentId, run.id).find((item) => item.id === apiSupplementId)!.sourceBatchId, retrySourceId, 'HTTP endpoint preserves failed-only selection')
+    assert.equal(onlyFailedCalls, 2, 'Each separate supplement sends exactly one failed row')
+  } finally { globalThis.fetch = savedFetch }
+  db.prepare('UPDATE ai_evaluation_batch SET model=? WHERE id=?').run('missing-model-profile', retrySourceId)
+  assert.throws(() => ai.retryFailedAnswerEvaluation(exp.experimentId, run.id, retrySourceId, onlyFailed), /相同模型/)
+  ai.activateJudgeProfile(originalProfileId)
   db.prepare("UPDATE ai_evaluation_batch SET status='running' WHERE id=?").run(secondId)
   db.prepare("UPDATE ai_evaluation SET status='pending' WHERE batch_id=? AND status='failed'").run(secondId)
   ai.recoverAiEvaluations()

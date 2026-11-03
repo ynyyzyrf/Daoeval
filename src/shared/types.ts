@@ -111,6 +111,7 @@ export function responseMapTemplateOf(platformType: string): ResponseMapTemplate
 }
 
 export interface VersionInfo {
+  versionName?: string
   model?: string
   promptVersion?: string
   frameworkVersion?: string
@@ -161,6 +162,7 @@ export type ErrorClass =
   | 'blocked_readonly'
 
 export interface NormalizedTrial {
+  sourceTrial?: { experimentId: string; runId: string; trialId: string; branchId: string; executedAt: string; composedAt: string }
   input: string
   finalOutput: string | null
   status: 'succeeded' | 'failed' | 'blocked'

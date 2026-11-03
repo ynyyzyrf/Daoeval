@@ -4,7 +4,7 @@ import { assignRunTaskTrialId, claimNextRunTask, countPendingTasks, countTasksBy
 export interface RunState {
   id: string
   experimentId: string
-  source: 'live' | 'legacy' | 'manual'
+  source: 'live' | 'legacy' | 'manual' | 'composed'
   status: 'running' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
   total: number
   done: number

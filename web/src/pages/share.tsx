@@ -68,7 +68,7 @@ export function SharePage({ token }: { token: string }) {
           </div>
           {snapshot.branches.length === 1 ? (
             <div className="share-stat">
-              <span>通過率</span>
+               <span>規則整體通過率</span>
               <b>{snapshot.passRateText}</b>
             </div>
           ) : (
@@ -96,7 +96,7 @@ export function SharePage({ token }: { token: string }) {
                   <div className="share-branch-name">{branch.name}</div>
                   <div className="share-branch-headline">{branch.headline}</div>
                   <div className="share-branch-meta">
-                    <span>通過率 {branch.passRateText}</span>
+                     <span>規則整體通過率 {branch.passRateText}</span>
                     <span>平均回應 {branch.avgLatencyText}</span>
                   </div>
                 </div>

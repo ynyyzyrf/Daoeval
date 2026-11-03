@@ -35,6 +35,21 @@ export interface AnswerEvaluation {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'interrupted'
   result: AnswerComparison | null
   error: string | null
+  /** Old records predate attempt counting and use 0. */
+  attempts: number
+  inherited?: boolean
+}
+
+export function canRetryAnswerEvaluation(item: { status: AnswerEvaluation['status']; error?: string | null }): boolean {
+  return item.status === 'failed' || item.status === 'interrupted' || (item.status === 'skipped' && Boolean(item.error?.startsWith('評分服務不可用')))
+}
+
+export function answerBatchLabel(batch: { status: AnswerEvaluationBatch['status']; evaluations: Array<{ status: AnswerEvaluation['status']; error?: string | null }> }): string {
+  if (batch.status === 'running') return '評估中'
+  if (batch.status === 'interrupted') return '已中斷'
+  const failed = batch.evaluations.some((item) => item.status === 'failed' || item.status === 'interrupted' || (item.status === 'skipped' && item.error?.startsWith('評分服務不可用')))
+  if (failed) return batch.evaluations.some((item) => item.status === 'completed') ? '部分失敗' : '評估失敗'
+  return '評估完成'
 }
 export interface AnswerEvaluationBatch {
   id: string
@@ -47,5 +62,6 @@ export interface AnswerEvaluationBatch {
   promptVersion: string
   createdAt: string
   finishedAt: string | null
+  sourceBatchId?: string | null
   evaluations: AnswerEvaluation[]
 }

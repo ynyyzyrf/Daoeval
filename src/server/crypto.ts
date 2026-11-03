@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -60,4 +60,9 @@ export function openSecret(sealed: { cipher: string; iv: string; tag: string }):
     decipher.update(Buffer.from(sealed.cipher, 'base64')),
     decipher.final(),
   ]).toString('utf8')
+}
+
+/** Bind persisted sessions to the current administrator credentials without storing them. */
+export function authCredentialFingerprint(username: string, password: string): string {
+  return createHmac('sha256', KEY).update(JSON.stringify([username, password])).digest('hex')
 }

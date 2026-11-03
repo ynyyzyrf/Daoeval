@@ -1,3 +1,4 @@
+import { modelComparisonIssues } from '../shared/model-comparison.ts'
 import type {
   AgentConfig,
   AgentVersionSnapshot,
@@ -31,6 +32,7 @@ interface AgentRow {
 }
 
 interface VersionRow {
+  version_name: string
   id: string
   agent_id: string
   version_no: number
@@ -170,7 +172,7 @@ export function sweepStaleTrials(): number {
 }
 
 export type RunStatus = 'running' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
-export type RunSource = 'live' | 'legacy' | 'manual'
+export type RunSource = 'live' | 'legacy' | 'manual' | 'composed'
 export type RunTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked'
 
 export interface RunRow {
@@ -343,8 +345,8 @@ export function listAgents() {
   const rows = db.prepare('SELECT * FROM agent WHERE archived = 0 ORDER BY created_at DESC').all() as AgentRow[]
   return rows.map((row) => {
     const versions = db
-      .prepare('SELECT id, version_no, status, created_at, validation FROM agent_version WHERE agent_id = ? ORDER BY version_no DESC')
-      .all(row.id) as Array<Pick<VersionRow, 'id' | 'version_no' | 'status' | 'created_at' | 'validation'>>
+      .prepare('SELECT id, version_no, version_name, snapshot, status, created_at, validation FROM agent_version WHERE agent_id = ? ORDER BY version_no DESC')
+      .all(row.id) as Array<Pick<VersionRow, 'id' | 'version_no' | 'version_name' | 'snapshot' | 'status' | 'created_at' | 'validation'>>
     const stats = db
       .prepare(
         `SELECT COUNT(*) AS n,
@@ -372,6 +374,8 @@ export function listAgents() {
       versions: versions.map((v) => ({
         id: v.id,
         versionNo: v.version_no,
+        versionName: v.version_name,
+        model: (JSON.parse(v.snapshot) as AgentConfig).versionInfo?.model ?? null,
         status: v.status,
         createdAt: v.created_at,
         validation: parseJson<ValidationResult>(v.validation),
@@ -411,12 +415,13 @@ function insertVersion(agentId: string, config: AgentConfig, diff: DiffEntry[], 
     ((db.prepare('SELECT MAX(version_no) AS n FROM agent_version WHERE agent_id = ?').get(agentId) as { n: number | null }).n ?? 0) + 1
   const snapshot: AgentVersionSnapshot = { ...config, agentId, versionNo, createdAt: nowIso() }
   db.prepare(
-    `INSERT INTO agent_version (id, agent_id, version_no, snapshot, diff, status, validation, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
+    `INSERT INTO agent_version (id, agent_id, version_no, version_name, snapshot, diff, status, validation, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
   ).run(
     versionId,
     agentId,
     versionNo,
+    config.versionInfo.versionName?.trim() || config.versionInfo.model?.trim() || `v${versionNo}`,
     JSON.stringify(snapshot),
     JSON.stringify(diff),
     JSON.stringify(validation),
@@ -505,6 +510,15 @@ function saveCredential(agentId: string, secret: string): void {
   ).run(agentId, sealed.cipher, sealed.iv, sealed.tag, sealed.mask, nowIso())
 }
 
+export function renameAgentVersion(agentId: string, versionId: string, raw: unknown) {
+  if (typeof raw !== 'string' || !raw.trim() || raw.trim().length > 120) throw new Error('版本名稱請填寫 1–120 個字元')
+  const version = db.prepare('SELECT version_name FROM agent_version WHERE id = ? AND agent_id = ?').get(versionId, agentId) as { version_name: string } | undefined
+  if (!version) throw new Error('Agent 版本不存在')
+  const versionName = raw.trim()
+  db.prepare('UPDATE agent_version SET version_name = ? WHERE id = ? AND agent_id = ?').run(versionName, versionId, agentId)
+  return { versionName, previousName: version.version_name }
+}
+
 export function listAgentVersions(agentId: string) {
   const rows = db
     .prepare('SELECT * FROM agent_version WHERE agent_id = ? ORDER BY version_no DESC')
@@ -512,6 +526,7 @@ export function listAgentVersions(agentId: string) {
   return rows.map((row) => ({
     id: row.id,
     versionNo: row.version_no,
+    versionName: row.version_name,
     status: row.status,
     createdAt: row.created_at,
     diff: parseJson<DiffEntry[]>(row.diff) ?? [],
@@ -819,6 +834,15 @@ export function evaluateGate(input: GateInput): GateResult {
 export function createExperiment(input: GateInput & { name: string; kind: 'A' | 'B'; externalConditions?: Record<string, string> }) {
   const gate = evaluateGate(input)
   if (!gate.ok) return { ok: false as const, missing: gate.missing }
+  if (new Set(input.branches.map(b => b.agentVersionId)).size !== input.branches.length) return { ok: false as const, missing: ['同一版本不可重複加入對比組'] }
+  if (new Set(input.branches.map(b => b.role)).size !== input.branches.length) return { ok: false as const, missing: ['分組識別不可重複'] }
+  if (input.externalConditions?.comparisonMode === 'models') {
+    const issues = modelComparisonIssues(input.branches.map(b => {
+      const version = getAgentVersion(b.agentVersionId)!
+      return { agentId: version.agent_id, config: JSON.parse(version.snapshot) }
+    }))
+    if (issues.length) return { ok: false as const, missing: issues }
+  }
   const id = newId('exp')
   const cases = gate.datasetVersion!.snapshot.cases
   const branches = input.branches.map((branch) => {
@@ -829,6 +853,7 @@ export function createExperiment(input: GateInput & { name: string; kind: 'A' | 
       agentVersionId: branch.agentVersionId,
       variables: branch.variables ?? {},
       agentSnapshot: JSON.parse(version.snapshot),
+      versionName: version.version_name,
     }
   })
   const frozen = {
@@ -845,6 +870,7 @@ export function createExperiment(input: GateInput & { name: string; kind: 'A' | 
       role: b.role,
       agentVersionId: b.agentVersionId,
       agentVersionNo: b.agentSnapshot.versionNo,
+      versionName: b.versionName,
       config: b.agentSnapshot as AgentConfig,
       variables: b.variables,
     })),
@@ -964,7 +990,7 @@ export function getRunTrials(runId: string) { return normalizeTrialRows(trialRow
 
 export function getRunSummary(runId: string) {
   const row = getRunRow(runId)
-  return row ? { id: row.id, status: row.status, source: row.source, startedAt: row.started_at, finishedAt: row.finished_at, total: row.total, done: row.done, succeeded: row.succeeded, failed: row.failed, blocked: row.blocked } : null
+  return row ? { id: row.id, status: row.status, source: row.source, repeats: row.repeats, startedAt: row.started_at, finishedAt: row.finished_at, total: row.total, done: row.done, succeeded: row.succeeded, failed: row.failed, blocked: row.blocked } : null
 }
 
 export function pickMetricsRun(experimentId: string): RunRow | null {

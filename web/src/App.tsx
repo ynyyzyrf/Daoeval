@@ -74,7 +74,7 @@ function crumbs(route: Route, entityName: string | null): Array<{ label: string;
     case 'report-detail':
       return [home, { label: '報告', onClick: () => navigate('/report') }, { label: loading }]
     case 'settings':
-      return [home, { label: '設定' }]
+      return [home, { label: '操作審計' }]
     case 'models':
       return [home, { label: '評估模型' }]
     default:
@@ -100,7 +100,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
           { kind: '跳轉', label: '測試集列表', path: '/testsets' },
           { kind: '跳轉', label: '實驗列表', path: '/experiments' },
           { kind: '跳轉', label: '報告列表', path: '/report' },
-          { kind: '跳轉', label: '設定', path: '/settings' },
+          { kind: '跳轉', label: '操作審計', path: '/settings' },
           { kind: '跳轉', label: '評估模型', path: '/models' },
           ...agents.map((a) => ({ kind: 'Agent', label: a.name, path: `/agents/${a.id}` })),
           ...sets.map((s) => ({ kind: '測試集', label: s.name, path: `/testsets/${s.id}` })),
@@ -212,7 +212,7 @@ const PAGE_NAMES: Record<string, string> = {
   testsets: '測試集',
   experiments: '實驗',
   report: '報告',
-  settings: '設定',
+  settings: '操作審計',
   models: '評估模型',
 }
 
@@ -394,7 +394,7 @@ export function App() {
           {navButton('experiments', '實驗', '/experiments', 'experiments')}
           {navButton('report', '報告', '/report', 'report')}
           {navButton('models', '評估模型', '/models', 'star')}
-          {navButton('settings', '設定', '/settings', 'settings')}
+          {navButton('settings', '操作審計', '/settings', 'settings')}
 
           {recent.length > 0 && (
             <>
@@ -417,7 +417,7 @@ export function App() {
         </nav>
 
         <div className="sidebar-foot">
-          <span className="version">V1.0</span>
+          <span className="version">V2.0</span>
         </div>
       </aside>
 
@@ -445,11 +445,6 @@ export function App() {
               </div>
             )}
             {reportMeta && <Badge tone={reportMeta.failed ? 'warn' : 'ok'}>{reportMeta.failed ? '部分失敗' : '已完成'}</Badge>}
-            {workbench && (
-              <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent('aeval:filter-toggle'))}>
-                <Icon name="filter" size={14} /> 篩選
-              </Button>
-            )}
           </div>
           <div className="topbar-actions">
             <Button size="sm" onClick={() => void auth.logout()} title={auth.username}>登出</Button>
@@ -466,14 +461,7 @@ export function App() {
                 </Button>
               )}
             </div>
-            {workbench ? (
-              <Button
-                variant="primary"
-                onClick={() => window.open(`/api/experiments/${(route as { id: string }).id}/export.pdf`, '_blank')}
-              >
-                導出
-              </Button>
-            ) : route.name !== 'models' ? (
+            {workbench ? null : route.name !== 'models' ? (
               <Button variant="primary" onClick={openNewExperiment}>
                 新建
               </Button>

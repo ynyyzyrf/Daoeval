@@ -16,7 +16,7 @@ import {
   Stepper,
   useToast,
 } from '../components/ui.tsx'
-import { formatDateTime, formatMs, formatPct } from '../lib/format.ts'
+import { formatAgentTime, formatDateTime, formatMs, formatPct } from '../lib/format.ts'
 import { PLATFORM_LABELS } from '../lib/labels.ts'
 import { navigate } from '../lib/router.ts'
 
@@ -66,6 +66,7 @@ const PRESETS: Record<string, { label: string; form: Partial<FormState> }> = {
 
 interface FormState {
   name: string
+  versionName: string
   platformType: string
   endpoint: string
   authType: 'none' | 'api_key' | 'bearer' | 'header'
@@ -91,6 +92,7 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   name: '',
+  versionName: '',
   platformType: 'custom_http',
   endpoint: 'http://127.0.0.1:5199/mock/oumi',
   authType: 'none',
@@ -148,6 +150,7 @@ function toConfig(form: FormState): { config: AgentConfig; error?: string } {
         : undefined,
       allowWrite: form.allowWrite,
       versionInfo: {
+        versionName: form.versionName.trim() || undefined,
         model: form.model.trim() || undefined,
         promptVersion: form.promptVersion.trim() || undefined,
         frameworkVersion: form.frameworkVersion.trim() || undefined,
@@ -272,6 +275,9 @@ export function AgentDetailPage({ id }: { id: string }) {
   const [detail, setDetail] = useState<AgentDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [disabling, setDisabling] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [versionName, setVersionName] = useState('')
+  const [savingName, setSavingName] = useState(false)
   const toast = useToast()
 
   const load = () => {
@@ -300,6 +306,18 @@ export function AgentDetailPage({ id }: { id: string }) {
         <SkeletonBlock height={160} />
       </div>
     )
+  }
+
+  const saveVersionName = async () => {
+    if (!renaming || !versionName.trim()) return
+    setSavingName(true)
+    try {
+      await api.renameVersion(id, renaming, versionName)
+      toast.push('success', '版本名稱已更新')
+      setRenaming(null)
+      load()
+    } catch (e) { toast.push('error', (e as Error).message) }
+    finally { setSavingName(false) }
   }
 
   const activeVersions = detail.versions.filter((v) => v.status === 'active')
@@ -353,11 +371,13 @@ export function AgentDetailPage({ id }: { id: string }) {
         </dl>
       </Card>
 
-      <Card title={`版本（${detail.versions.length}）`} subtitle="已發佈版本不可修改，只能停用；實驗引用的是版本快照。">
+      <Card title={`版本（${detail.versions.length}）`} subtitle="版本名稱可修改，執行配置快照保持不變；模型欄位顯示該版本記錄的接口模型名。">
         <table className="data">
           <thead>
             <tr>
               <th>版本</th>
+              <th>版本名稱</th>
+              <th>模型</th>
               <th>狀態</th>
               <th>連線驗證</th>
               <th>變更</th>
@@ -371,6 +391,13 @@ export function AgentDetailPage({ id }: { id: string }) {
                 <td>
                   <strong>v{version.versionNo}</strong>
                 </td>
+                <td>
+                  {renaming === version.id ? <div className="stack">
+                    <input aria-label="版本名稱" maxLength={120} value={versionName} onChange={(e) => setVersionName(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') void saveVersionName(); if (e.key === 'Escape') setRenaming(null) }} />
+                    <div className="row"><Button size="sm" loading={savingName} disabled={!versionName.trim()} onClick={() => void saveVersionName()}>保存名稱</Button><Button size="sm" disabled={savingName} onClick={() => setRenaming(null)}>取消</Button></div>
+                  </div> : version.versionName || version.snapshot.versionInfo.model || '未命名'}
+                </td>
+                <td className="sm">{version.snapshot.versionInfo.model || '未提供'}</td>
                 <td>
                   <Badge tone={version.status === 'active' ? 'ok' : 'muted'}>{version.status === 'active' ? '啟用' : '已停用'}</Badge>
                 </td>
@@ -388,6 +415,7 @@ export function AgentDetailPage({ id }: { id: string }) {
                 <td className="sm muted">{version.diff.map((d) => d.field).join('、') || '初始版本'}</td>
                 <td className="muted sm">{formatDateTime(version.createdAt)}</td>
                 <td className="actions">
+                  <Button size="sm" disabled={savingName} onClick={() => { setRenaming(version.id); setVersionName(version.versionName || version.snapshot.versionInfo.model || '') }}>改名</Button>
                   {version.status === 'active' && (
                     <Button
                       size="sm"
@@ -416,7 +444,7 @@ export function AgentDetailPage({ id }: { id: string }) {
                 <th>案例</th>
                 <th>狀態</th>
                 <th>評分</th>
-                <th className="right">耗時</th>
+                <th className="right" title="失敗時為等待耗時，不含 AI 評審">Agent 耗時</th>
                 <th>時間</th>
               </tr>
             </thead>
@@ -432,7 +460,7 @@ export function AgentDetailPage({ id }: { id: string }) {
                   <td className="sm">
                     {trial.scorePassed === null ? <span className="muted">N/A</span> : trial.scorePassed ? '通過' : '未通過'}
                   </td>
-                  <td className="right">{formatMs(trial.latencyMs)}</td>
+                  <td className="right">{formatAgentTime(trial.latencyMs, trial.status)}</td>
                   <td className="muted sm">{formatDateTime(trial.createdAt)}</td>
                 </tr>
               ))}
@@ -463,6 +491,7 @@ export function AgentWizardPage({ agentId }: { agentId?: string }) {
         const config = detail.config
         setForm({
           name: config.name,
+          versionName: '',
           platformType: config.platformType,
           endpoint: config.endpoint,
           authType: config.authType,
@@ -621,6 +650,9 @@ export function AgentWizardPage({ agentId }: { agentId?: string }) {
               ))}
             </div>
           )}
+          <Field label="版本名稱（可選）" hint="用來辨認模型或 Prompt，例如 metis-coder-max · Prompt v1；留空會使用模型名稱。">
+            <input maxLength={120} value={form.versionName} onChange={(e) => set('versionName', e.target.value)} placeholder="例如：metis-coder-max · Prompt v1" />
+          </Field>
           <div className="grid-2">
             <Field label="名稱" error={errors.name} hint="同一工作區內唯一">
               <input
