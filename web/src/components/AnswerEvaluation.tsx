@@ -20,17 +20,25 @@ export function useAnswerEvaluations(experimentId: string, runId: string | null)
     return () => { generation.current += 1 }
   }, [experimentId, runId])
   useEffect(() => {
-    if (!running || !runId) return
+    if (!runId) return
     let stopped = false
     let fetching = false
-    const timer = window.setInterval(async () => {
+    const refresh = async () => {
       if (fetching || document.visibilityState === 'hidden') return
       fetching = true
       try { const values = await api.answerEvaluations(experimentId, runId); if (!stopped) { setBatches(values); setError(null) } }
       catch (e) { if (!stopped) setError((e as Error).message) }
       finally { fetching = false }
-    }, 2000)
-    return () => { stopped = true; window.clearInterval(timer) }
+    }
+    const timer = window.setInterval(() => void refresh(), running ? 2000 : 10000)
+    const onVisible = () => { if (document.visibilityState !== 'hidden') void refresh() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      stopped = true; window.clearInterval(timer)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [experimentId, runId, running])
   const start = async (retryBatchId?: string) => {
     if (!runId) return
